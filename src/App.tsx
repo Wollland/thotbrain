@@ -97,17 +97,19 @@ const ThotBrainConsolePanel = () => {
     <div className="h-full flex flex-col bg-white border-l border-zinc-200 shadow-[-10px_0_30px_rgba(0,0,0,0.02)]">
       <div className="h-16 px-5 border-b border-zinc-200 flex items-center justify-between bg-black text-white shrink-0">
         <div className="flex items-center gap-3">
-          <Terminal className="w-5 h-5 text-[#D4AF37]" />
+          <div className="w-10 h-10 rounded-lg overflow-hidden border border-zinc-700 shrink-0 shadow-lg shadow-[#D4AF37]/20">
+            <img src="https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=150&h=150&fit=crop" alt="Computer" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+          </div>
           <div className="flex flex-col">
-            <span className="font-bold text-sm tracking-wide uppercase">Chimera Sandbox</span>
+            <span className="font-bold text-sm tracking-wide uppercase text-[#D4AF37]">Computer</span>
             <div className="flex items-center gap-1.5">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-[10px] text-zinc-400 font-mono">Ejecutando subrutinas...</span>
+              <span className="text-[10px] text-zinc-400 font-mono uppercase tracking-wider">Canal de ejecución</span>
             </div>
           </div>
         </div>
         <button className="w-8 h-8 rounded-lg border border-zinc-700 flex items-center justify-center text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors">
-          <Activity className="w-4 h-4" />
+          <Monitor className="w-4 h-4" />
         </button>
       </div>
 
@@ -127,7 +129,7 @@ const ThotBrainConsolePanel = () => {
           
           <div className="p-4 border-b border-zinc-100">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Petición (Chimera API)</span>
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Petición (Computer)</span>
               <button className="text-zinc-400 hover:text-zinc-600"><Copy className="w-3.5 h-3.5" /></button>
             </div>
             <pre className="text-[11px] font-mono text-zinc-800 bg-zinc-50 p-3 rounded-lg border border-zinc-200 overflow-x-auto">
@@ -143,7 +145,7 @@ const ThotBrainConsolePanel = () => {
 
           <div className="p-4">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Respuesta del Sandbox</span>
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Respuesta del Computer</span>
               <button className="text-zinc-400 hover:text-zinc-600"><Copy className="w-3.5 h-3.5" /></button>
             </div>
             <div className="text-xs text-zinc-700 leading-relaxed border-l-2 border-emerald-400 pl-3">
@@ -182,7 +184,7 @@ export default function App() {
     {
       id: '2',
       role: 'agent',
-      content: 'Voy a preparar un informe completo sobre Moderna. Para garantizar la máxima precisión y profundidad, he activado el **ThotBrain Swarm**.\n\nHe desplegado un equipo de subagentes especializados con nombres en clave que trabajarán en paralelo dentro del sandbox de Chimera:',
+      content: 'Voy a preparar un informe completo sobre Moderna. Para garantizar la máxima precisión y profundidad, he activado el **ThotBrain Swarm**.\n\nHe desplegado un equipo de subagentes especializados con nombres en clave que trabajarán en paralelo en el Computer:',
     },
     {
       id: '3',
@@ -219,7 +221,7 @@ export default function App() {
               { icon: Mail, label: 'Integración Email' },
               { icon: Activity, label: 'Métricas en Vivo' },
               { icon: Layers, label: 'Modelos RAG' },
-              { icon: Terminal, label: 'Chimera Scripts' },
+              { icon: Terminal, label: 'Computer Scripts' },
               { icon: Network, label: 'Agent Swarm', badge: 'Activo' },
             ].map((item, i) => (
               <button key={i} className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition-colors ${item.badge ? 'bg-zinc-50 text-black' : 'hover:bg-zinc-50 text-zinc-600 hover:text-black'}`}>
