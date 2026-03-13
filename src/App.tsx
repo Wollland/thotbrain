@@ -1,7 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, User, Menu, Settings, Plus, MessageSquare, Sparkles, X, MoreHorizontal, Mail, Database, Activity, Search, ChevronRight, Server, Monitor, Copy, Terminal, Cpu, Network, Layers, CheckCircle2 } from 'lucide-react';
+import { Send, User, Menu, Settings, Plus, MessageSquare, Sparkles, X, MoreHorizontal, Mail, Database, Activity, Search, ChevronRight, Server, Monitor, Copy, Terminal, Cpu, Network, Layers, CheckCircle2, Plug, Loader2, Mic } from 'lucide-react';
 
-type UIComponentType = 'text' | 'gmail' | 'elasticsearch' | 'agent_swarm';
+import { DynamicRenderer, DynamicBlock } from './components/DynamicRenderer';
+import { MCPConnectorsModal } from './components/MCPConnectorsModal';
+import { SwarmActivityPanel } from './components/SwarmActivityPanel';
+import { runAgentSwarm, AgentProgress } from './services/geminiService';
+
+type UIComponentType = 'text' | 'gmail' | 'elasticsearch' | 'agent_swarm' | 'dynamic_results' | 'thinking';
 
 interface Message {
   id: string;
@@ -12,13 +17,57 @@ interface Message {
 }
 
 // --- Data ---
-const agentsData = [
-  { id: 1, name: 'Iker', role: 'Data Architect', task: 'Extrayendo histórico de cotizaciones (Moderna Inc.)', status: 'Completado', progress: 100, avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&h=150&fit=crop' },
-  { id: 2, name: 'Miren', role: 'Financial Analyst', task: 'Procesando balances y P&L Q3 2025', status: 'Procesando', progress: 65, avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&h=150&fit=crop' },
-  { id: 3, name: 'Asier', role: 'Pipeline Scientist', task: 'Analizando ensayos clínicos fase III (ARNm)', status: 'Generando', progress: 30, avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop' },
-  { id: 4, name: 'Ziortza', role: 'Market Strategist', task: 'Evaluando cuota de mercado vs BioNTech', status: 'Integrando', progress: 15, avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&h=150&fit=crop' },
-  { id: 5, name: 'Jon', role: 'Risk Assessor', task: 'Calculando matriz de riesgos regulatorios', status: 'En cola', progress: 0, avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150&h=150&fit=crop' },
-  { id: 6, name: 'Ana', role: 'Visual Designer', task: 'Diseñando gráficos de dispersión y tendencias', status: 'En cola', progress: 0, avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&h=150&fit=crop' },
+const initialAgentsData = [
+  {
+    id: 1,
+    name: "Elena Rostova",
+    role: "Ingeniero",
+    status: "ESPERANDO",
+    task: "Análisis de viabilidad técnica",
+    contribution: "Esperando instrucciones...",
+    progress: 0,
+    avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&h=150&fit=crop"
+  },
+  {
+    id: 2,
+    name: "Marcus Chen",
+    role: "Comercial",
+    status: "ESPERANDO",
+    task: "Proyección de ventas y mercado",
+    contribution: "Esperando instrucciones...",
+    progress: 0,
+    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop"
+  },
+  {
+    id: 3,
+    name: "Sofia Al-Fayed",
+    role: "Experto en Marketing",
+    status: "ESPERANDO",
+    task: "Estudio de mercado",
+    contribution: "Esperando instrucciones...",
+    progress: 0,
+    avatar: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&h=150&fit=crop"
+  },
+  {
+    id: 4,
+    name: "David Thorne",
+    role: "Asesor Legal",
+    status: "ESPERANDO",
+    task: "Cumplimiento normativo",
+    contribution: "Esperando instrucciones...",
+    progress: 0,
+    avatar: "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=150&h=150&fit=crop"
+  },
+  {
+    id: 5,
+    name: "Carmen Vega",
+    role: "Asesor Laboral",
+    status: "ESPERANDO",
+    task: "Estructura organizativa",
+    contribution: "Esperando instrucciones...",
+    progress: 0,
+    avatar: "https://images.unsplash.com/photo-1580489944761-15a19d654956?w=150&h=150&fit=crop"
+  }
 ];
 
 // --- Generative UI Components ---
@@ -28,62 +77,75 @@ const AgentSwarmWidget = () => {
 
   return (
     <div className="mt-6 w-full animate-in fade-in slide-in-from-bottom-4 duration-700">
-      <div className="bg-white border border-zinc-300 rounded-xl overflow-hidden shadow-xl shadow-black/5">
-        <div className="px-5 py-4 border-b border-zinc-200 flex items-center justify-between bg-zinc-50">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-black flex items-center justify-center shadow-inner">
-              <Network className="w-4 h-4 text-[#D4AF37]" />
+      <div className="bg-white border border-zinc-200/80 rounded-[24px] overflow-hidden shadow-sm">
+        <div className="px-6 py-5 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 rounded-2xl bg-black flex items-center justify-center shadow-md shadow-black/10">
+              <Network className="w-5 h-5 text-[#D4AF37]" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-zinc-900 tracking-tight">ThotBrain Swarm</h3>
-              <p className="text-[11px] text-zinc-500 font-medium uppercase tracking-wider">6 Subagentes Activos</p>
+              <h3 className="text-base font-bold text-zinc-900 tracking-tight">ThotBrain Swarm</h3>
+              <p className="text-[11px] text-zinc-500 font-medium uppercase tracking-wider mt-0.5">5 Especialistas Activos</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-xs font-bold text-emerald-600 uppercase tracking-wider">Operativo</span>
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 rounded-full border border-emerald-100">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Operativo</span>
           </div>
         </div>
         
-        <div className="divide-y divide-zinc-100">
+        <div className="p-2 bg-zinc-50/50 border-t border-zinc-100/80 flex flex-col gap-1">
           {agentsData.map((agent) => (
             <div 
               key={agent.id} 
               onClick={() => setActiveAgent(agent.id)}
-              className={`p-4 flex items-center gap-4 cursor-pointer transition-all duration-200 ${activeAgent === agent.id ? 'bg-zinc-50 border-l-4 border-l-[#D4AF37]' : 'hover:bg-zinc-50/50 border-l-4 border-l-transparent'}`}
+              className={`px-4 py-3.5 rounded-2xl flex flex-col gap-3 cursor-pointer transition-all duration-300 ${activeAgent === agent.id ? 'bg-white shadow-[0_2px_10px_rgba(0,0,0,0.04)] border border-zinc-200/60' : 'hover:bg-zinc-100/50 border border-transparent'}`}
             >
-              <div className="relative shrink-0">
-                <div className={`w-10 h-10 rounded-full overflow-hidden border-2 ${activeAgent === agent.id ? 'border-[#D4AF37]' : 'border-zinc-200'}`}>
-                  <img src={agent.avatar} alt={agent.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                </div>
-                {agent.progress === 100 && (
-                  <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full flex items-center justify-center">
-                    <CheckCircle2 className="w-2.5 h-2.5 text-white" />
+              <div className="flex items-center gap-4">
+                <div className="relative shrink-0">
+                  <div className={`w-10 h-10 rounded-full overflow-hidden border-2 transition-colors duration-300 ${activeAgent === agent.id ? 'border-[#D4AF37]' : 'border-transparent'}`}>
+                    <img src={agent.avatar} alt={agent.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                   </div>
-                )}
+                  {agent.progress === 100 && (
+                    <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full flex items-center justify-center shadow-sm">
+                      <CheckCircle2 className="w-2.5 h-2.5 text-white" />
+                    </div>
+                  )}
+                </div>
+                
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-sm font-bold text-zinc-900">{agent.name}</span>
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-zinc-100/80 text-zinc-600">{agent.role}</span>
+                    </div>
+                    <span className={`text-[10px] font-bold uppercase tracking-wider ${activeAgent === agent.id ? 'text-[#D4AF37]' : 'text-zinc-400'}`}>{agent.status}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-xs text-zinc-500 truncate font-medium">{agent.task}</span>
+                    <div className="flex items-center gap-3 shrink-0 w-28">
+                      <div className="h-1 flex-1 bg-zinc-100 rounded-full overflow-hidden">
+                        <div 
+                          className={`h-full rounded-full transition-all duration-1000 ${agent.progress === 100 ? 'bg-emerald-500' : 'bg-[#D4AF37]'}`} 
+                          style={{ width: `${agent.progress}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] font-bold text-zinc-500 w-7 text-right">{agent.progress}%</span>
+                    </div>
+                  </div>
+                </div>
               </div>
               
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-zinc-900">{agent.name}</span>
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600 border border-zinc-200">{agent.role}</span>
-                  </div>
-                  <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">{agent.status}</span>
-                </div>
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-xs text-zinc-600 truncate font-medium">{agent.task}</span>
-                  <div className="flex items-center gap-2 shrink-0 w-24">
-                    <div className="h-1.5 flex-1 bg-zinc-100 rounded-full overflow-hidden">
-                      <div 
-                        className={`h-full rounded-full transition-all duration-1000 ${agent.progress === 100 ? 'bg-emerald-500' : 'bg-[#D4AF37]'}`} 
-                        style={{ width: `${agent.progress}%` }}
-                      />
-                    </div>
-                    <span className="text-[10px] font-bold text-zinc-500 w-6 text-right">{agent.progress}%</span>
+              {activeAgent === agent.id && (
+                <div className="pl-14 pr-2 pb-1 animate-in fade-in slide-in-from-top-2 duration-300">
+                  <div className="p-3 bg-zinc-50 rounded-xl border border-zinc-100">
+                    <p className="text-xs text-zinc-600 leading-relaxed">
+                      <span className="font-bold text-zinc-900 mr-1">Aportación:</span>
+                      {agent.contribution}
+                    </p>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
           ))}
         </div>
@@ -175,24 +237,181 @@ const ThotBrainConsolePanel = () => {
 // --- Main App ---
 
 export default function App() {
+  const [isMCPModalOpen, setIsMCPModalOpen] = useState(false);
+  const [inputValue, setInputValue] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [agentsData, setAgentsData] = useState(initialAgentsData);
+  const [thoughtStream, setThoughtStream] = useState<any[]>([]);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<any>(null);
+  const originalInputRef = useRef('');
+  
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
-      role: 'user',
-      content: 'Preséntame un informe sobre la empresa Moderna (una famosa farmacéutica). A ser posible, incluye todo tipo de gráficos y capacidades.'
-    },
-    {
-      id: '2',
       role: 'agent',
-      content: 'Voy a preparar un informe completo sobre Moderna. Para garantizar la máxima precisión y profundidad, he activado el **ThotBrain Swarm**.\n\nHe desplegado un equipo de subagentes especializados con nombres en clave que trabajarán en paralelo en el Computer:',
-    },
-    {
-      id: '3',
-      role: 'agent',
-      content: 'Asignando tareas y comenzando la extracción de datos en tiempo real:',
-      uiType: 'agent_swarm'
+      content: 'Hola Jorge. Soy ThotBrain. ¿Qué análisis o tarea quieres que el enjambre de agentes realice hoy?'
     }
   ]);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = true;
+      recognitionRef.current.interimResults = true;
+      recognitionRef.current.lang = 'es-ES';
+
+      recognitionRef.current.onresult = (event: any) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
+        }
+
+        if (finalTranscript) {
+          originalInputRef.current += finalTranscript + ' ';
+        }
+        
+        const newText = originalInputRef.current + interimTranscript;
+        setInputValue(newText);
+        
+        const textarea = document.getElementById('chat-input');
+        if (textarea) {
+          textarea.style.height = 'auto';
+          textarea.style.height = `${Math.min(textarea.scrollHeight, 300)}px`;
+        }
+      };
+
+      recognitionRef.current.onerror = (event: any) => {
+        console.error('Speech recognition error', event.error);
+        setIsListening(false);
+      };
+
+      recognitionRef.current.onend = () => {
+        setIsListening(false);
+      };
+    }
+    
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+    };
+  }, []);
+
+  const toggleListening = () => {
+    if (!recognitionRef.current) {
+      alert('Tu navegador no soporta el reconocimiento de voz nativo. Por favor, usa Chrome o Edge.');
+      return;
+    }
+    
+    if (isListening) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    } else {
+      originalInputRef.current = inputValue ? inputValue + ' ' : '';
+      try {
+        recognitionRef.current.start();
+        setIsListening(true);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!inputValue.trim() || isProcessing) return;
+
+    const userMsg = inputValue.trim();
+    const newMessage: Message = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: userMsg
+    };
+
+    const thinkingId = Date.now().toString() + 'thinking';
+
+    setMessages(prev => [
+      ...prev, 
+      newMessage,
+      {
+        id: thinkingId,
+        role: 'agent',
+        content: '',
+        uiType: 'thinking'
+      }
+    ]);
+    
+    setInputValue('');
+    const textarea = document.getElementById('chat-input');
+    if (textarea) textarea.style.height = 'auto';
+    setIsProcessing(true);
+    setThoughtStream([]);
+    
+    // Reset agents
+    setAgentsData(initialAgentsData);
+
+    try {
+      const dynamicBlocks = await runAgentSwarm(
+        userMsg,
+        (progressUpdate) => {
+          setAgentsData(prev => prev.map(agent => 
+            agent.id === progressUpdate.id 
+              ? { ...agent, ...progressUpdate } 
+              : agent
+          ));
+        },
+        (thought) => {
+          setThoughtStream(prev => [...prev, thought]);
+        }
+      );
+
+      setMessages(prev => {
+        const filtered = prev.filter(m => m.id !== thinkingId);
+        return [...filtered, {
+          id: Date.now().toString() + 'res',
+          role: 'agent',
+          content: 'He analizado tu petición utilizando el enjambre de agentes y los conectores MCP. Aquí tienes los resultados renderizados dinámicamente:',
+          uiType: 'dynamic_results',
+          uiData: dynamicBlocks
+        }];
+      });
+    } catch (error) {
+      console.error(error);
+      setMessages(prev => {
+        const filtered = prev.filter(m => m.id !== thinkingId);
+        return [...filtered, {
+          id: Date.now().toString() + 'err',
+          role: 'agent',
+          content: 'Hubo un error al procesar la solicitud con Gemini API. Asegúrate de que la API Key está configurada correctamente.'
+        }];
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
 
   return (
     <div className="flex h-screen bg-[#FDFDFD] font-sans text-zinc-900 overflow-hidden selection:bg-[#D4AF37]/30 selection:text-black">
@@ -223,8 +442,13 @@ export default function App() {
               { icon: Layers, label: 'Modelos RAG' },
               { icon: Terminal, label: 'Computer Scripts' },
               { icon: Network, label: 'Agent Swarm', badge: 'Activo' },
+              { icon: Plug, label: 'Conectores MCP', action: () => setIsMCPModalOpen(true) },
             ].map((item, i) => (
-              <button key={i} className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition-colors ${item.badge ? 'bg-zinc-50 text-black' : 'hover:bg-zinc-50 text-zinc-600 hover:text-black'}`}>
+              <button 
+                key={i} 
+                onClick={item.action}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition-colors ${item.badge ? 'bg-zinc-50 text-black' : 'hover:bg-zinc-50 text-zinc-600 hover:text-black'}`}
+              >
                 <div className="flex items-center gap-3">
                   <item.icon className={`w-4 h-4 ${item.badge ? 'text-[#D4AF37]' : 'text-zinc-400'}`} />
                   <span className="text-sm font-semibold">{item.label}</span>
@@ -276,7 +500,7 @@ export default function App() {
         </header>
 
         <div className="flex-1 overflow-y-auto p-8 scroll-smooth pb-40">
-          <div className="max-w-3xl mx-auto space-y-10">
+          <div className="max-w-4xl mx-auto space-y-10">
             {messages.map((msg) => (
               <div key={msg.id} className={`flex gap-5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 {msg.role === 'agent' && (
@@ -285,49 +509,40 @@ export default function App() {
                   </div>
                 )}
                 
-                <div className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} max-w-[85%]`}>
+                <div className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} max-w-[95%]`}>
                   {msg.role === 'agent' && (
                     <span className="text-[10px] font-bold text-zinc-400 mb-2 ml-1 uppercase tracking-wider">ThotBrain</span>
                   )}
-                  <div className={`text-[15px] leading-relaxed whitespace-pre-wrap ${
-                    msg.role === 'user'
-                      ? 'bg-zinc-100 text-zinc-900 px-6 py-4 rounded-2xl font-medium border border-zinc-200/50'
-                      : 'text-zinc-800 font-medium'
-                  }`}>
-                    {msg.content}
-                  </div>
                   
-                  {msg.role === 'agent' && msg.id === '2' && (
-                    <div className="mt-5 w-full max-w-md border border-zinc-200 rounded-xl overflow-hidden shadow-sm bg-white">
-                      <div className="px-4 py-2 bg-zinc-50 border-b border-zinc-100 text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
-                        Inicializando Subagentes
-                      </div>
-                      {agentsData.map((agent, i) => (
-                        <div key={i} className="flex items-center gap-4 px-4 py-3 border-b border-zinc-100 last:border-0 hover:bg-zinc-50 transition-colors">
-                          <div className="w-6 h-6 rounded-full overflow-hidden border border-zinc-200 shrink-0">
-                            <img src={agent.avatar} alt={agent.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                          </div>
-                          <div className="flex flex-col flex-1">
-                            <span className="text-sm font-bold text-zinc-900">{agent.name}</span>
-                            <span className="text-[10px] text-zinc-500 font-medium">{agent.role}</span>
-                          </div>
-                          <div className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md">
-                            <CheckCircle2 className="w-3 h-3" /> Listo
-                          </div>
-                        </div>
-                      ))}
+                  {msg.uiType === 'thinking' ? (
+                    <div className="flex items-center gap-3 text-zinc-500 font-medium text-sm animate-pulse bg-zinc-50 px-5 py-3.5 rounded-2xl border border-zinc-200/50">
+                      <Loader2 className="w-4 h-4 animate-spin text-[#D4AF37]" />
+                      ThotBrain está orquestando el enjambre de agentes...
+                    </div>
+                  ) : (
+                    <div className={`text-[15px] leading-relaxed whitespace-pre-wrap ${
+                      msg.role === 'user'
+                        ? 'bg-zinc-100 text-zinc-900 px-6 py-4 rounded-2xl font-medium border border-zinc-200/50'
+                        : 'text-zinc-800 font-medium'
+                    }`}>
+                      {msg.content}
                     </div>
                   )}
 
-                  {msg.uiType === 'agent_swarm' && <AgentSwarmWidget />}
+                  {msg.uiType === 'dynamic_results' && msg.uiData && (
+                    <div className="mt-6 w-full">
+                      <DynamicRenderer blocks={msg.uiData} />
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
+            <div ref={messagesEndRef} />
           </div>
         </div>
 
         {/* Input Area */}
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-full max-w-3xl px-8">
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-full max-w-4xl px-8">
           <div className="bg-white rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.08)] border border-zinc-200 p-3 flex flex-col gap-3">
             <div className="flex items-center justify-between px-2">
               <div className="text-xs font-medium text-zinc-500 flex items-center gap-2">
@@ -339,27 +554,57 @@ export default function App() {
               </div>
             </div>
             
-            <div className="flex items-center gap-2 bg-zinc-50 rounded-xl p-1 border border-zinc-200 focus-within:border-[#D4AF37] focus-within:ring-2 focus-within:ring-[#D4AF37]/20 transition-all">
-              <button className="w-10 h-10 rounded-lg flex items-center justify-center text-zinc-400 hover:text-black hover:bg-zinc-200 transition-colors shrink-0">
+            <div className="flex items-end gap-2 bg-zinc-50 rounded-xl p-2 border border-zinc-200 focus-within:border-[#D4AF37] focus-within:ring-2 focus-within:ring-[#D4AF37]/20 transition-all shadow-inner">
+              <button className="w-10 h-10 rounded-lg flex items-center justify-center text-zinc-400 hover:text-black hover:bg-zinc-200 transition-colors shrink-0 mb-0.5">
                 <Plus className="w-5 h-5" />
               </button>
-              <input 
-                type="text" 
-                placeholder="Añade un comentario o redirige a los agentes..." 
-                className="flex-1 bg-transparent border-none focus:ring-0 text-sm font-medium text-zinc-800 placeholder:text-zinc-400 px-2"
+              <button 
+                onClick={toggleListening}
+                className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors shrink-0 mb-0.5 ${
+                  isListening 
+                    ? 'bg-red-100 text-red-500 hover:bg-red-200 animate-pulse' 
+                    : 'text-zinc-400 hover:text-black hover:bg-zinc-200'
+                }`}
+                title={isListening ? "Detener dictado" : "Dictado por voz"}
+              >
+                <Mic className="w-5 h-5" />
+              </button>
+              <textarea 
+                id="chat-input"
+                value={inputValue}
+                onChange={(e) => {
+                  setInputValue(e.target.value);
+                  e.target.style.height = 'auto';
+                  e.target.style.height = `${Math.min(e.target.scrollHeight, 300)}px`;
+                }}
+                onKeyDown={handleKeyDown}
+                placeholder="Escribe o dicta tu mensaje aquí (Shift + Enter para nueva línea)..." 
+                className="flex-1 bg-transparent border-none focus:ring-0 text-[15px] font-medium text-zinc-800 placeholder:text-zinc-400 px-2 py-2.5 outline-none resize-none min-h-[44px] max-h-[300px] overflow-y-auto leading-relaxed"
+                rows={1}
               />
-              <button className="w-10 h-10 rounded-lg bg-black text-[#D4AF37] flex items-center justify-center shrink-0 hover:bg-zinc-800 transition-colors shadow-md">
-                <Send className="w-4 h-4" />
+              <button 
+                onClick={handleSendMessage}
+                disabled={!inputValue.trim() || isProcessing}
+                className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 transition-all mb-0.5 ${
+                  inputValue.trim() && !isProcessing
+                    ? 'bg-black text-[#D4AF37] hover:bg-zinc-800 shadow-md' 
+                    : 'bg-zinc-200 text-zinc-400 cursor-not-allowed'
+                }`}
+              >
+                {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Right Panel - Chimera Sandbox */}
+      {/* Right Panel - Orchestration & Chain of Thought */}
       <div className="w-[420px] shrink-0 hidden xl:block z-20">
-        <ThotBrainConsolePanel />
+        <SwarmActivityPanel agentsData={agentsData} thoughtStream={thoughtStream} isProcessing={isProcessing} />
       </div>
+
+      {/* Modals */}
+      <MCPConnectorsModal isOpen={isMCPModalOpen} onClose={() => setIsMCPModalOpen(false)} />
     </div>
   );
 }
