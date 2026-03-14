@@ -169,9 +169,21 @@ export const runAgentSwarm = async (
     // Clean up markdown if the model ignored the instruction
     if (jsonOutput.startsWith('\`\`\`json')) {
       jsonOutput = jsonOutput.replace(/\`\`\`json/g, '').replace(/\`\`\`/g, '').trim();
+    } else if (jsonOutput.startsWith('\`\`\`')) {
+      jsonOutput = jsonOutput.replace(/\`\`\`/g, '').trim();
     }
 
-    return JSON.parse(jsonOutput);
+    let parsed = JSON.parse(jsonOutput);
+    
+    // Si el modelo devuelve un objeto con una propiedad que es un array (ej. { "blocks": [...] })
+    if (parsed && !Array.isArray(parsed)) {
+      if (Array.isArray(parsed.blocks)) parsed = parsed.blocks;
+      else if (Array.isArray(parsed.ui)) parsed = parsed.ui;
+      else if (Array.isArray(parsed.components)) parsed = parsed.components;
+      else parsed = [parsed]; // Si es un solo objeto, lo envolvemos en un array
+    }
+
+    return parsed;
 
   } catch (error) {
     console.error("Error running agent swarm:", error);

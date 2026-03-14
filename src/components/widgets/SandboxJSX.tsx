@@ -12,12 +12,20 @@ const scope = {
 };
 
 interface SandboxJSXProps {
-  code: string;
+  code?: string;
 }
 
 export const SandboxJSX: React.FC<SandboxJSXProps> = ({ code }) => {
-  // Limpiar el código por si el modelo envía markdown
-  const cleanCode = code.replace(/```jsx\n?/g, '').replace(/```\n?/g, '').trim();
+  if (!code) return null;
+
+  // Limpiar el código por si el modelo envía markdown, imports o exports
+  const cleanCode = code
+    .replace(/```jsx\n?/g, '')
+    .replace(/```javascript\n?/g, '')
+    .replace(/```\n?/g, '')
+    .replace(/import .*;?\n/g, '')
+    .replace(/export default /g, '')
+    .trim();
 
   return (
     <div className="bg-white rounded-xl border border-indigo-200 overflow-hidden shadow-md">
