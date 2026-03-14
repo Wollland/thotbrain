@@ -112,6 +112,33 @@ const root=ReactDOM.createRoot(document.getElementById('root'));try{if(typeof Ap
   );
 }
 
+// ─── Auto-open React Sandbox (for presentations) ───
+function PresentationSandbox({ code }: { code: string }) {
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script><script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script><script src="https://unpkg.com/@babel/standalone/babel.min.js"></script><script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js" crossorigin></script><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:16px;background:#fff}</style></head><body><div id="root"></div><script type="text/babel">
+const {BarChart,Bar,LineChart,Line,PieChart,Pie,Cell,XAxis,YAxis,CartesianGrid,Tooltip,Legend,ResponsiveContainer,AreaChart,Area,RadarChart,Radar,PolarGrid,PolarAngleAxis,PolarRadiusAxis} = Recharts;
+${code.replace(/<\/script>/g, '<\\/script>')}
+const root=ReactDOM.createRoot(document.getElementById('root'));try{if(typeof App!=='undefined')root.render(React.createElement(App));else if(typeof Component!=='undefined')root.render(React.createElement(Component));}catch(e){document.getElementById('root').innerHTML='<pre style="color:red;padding:16px">'+e.message+'\\n'+e.stack+'</pre>';}</script></body></html>`;
+
+  return (
+    <div className="my-3 border border-zinc-200 rounded-xl overflow-hidden shadow-lg animate-in fade-in slide-in-from-bottom-2">
+      <div className="flex items-center justify-between px-4 py-2 bg-gradient-to-r from-zinc-900 to-zinc-800 border-b border-zinc-700">
+        <div className="flex items-center gap-2 text-[11px] font-semibold text-[#D4AF37]">
+          <Sparkles className="w-3.5 h-3.5" />
+          <span>Visualización Interactiva</span>
+        </div>
+        <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Powered by Qwen3-Omni</span>
+      </div>
+      <iframe
+        srcDoc={html}
+        sandbox="allow-scripts"
+        className="w-full border-0 bg-white"
+        style={{ height: '500px', resize: 'vertical' }}
+        title="Presentation"
+      />
+    </div>
+  );
+}
+
 // ─── Full Markdown (completed messages) ───
 const FullMarkdown = memo(function FullMarkdown({ content }: { content: string }) {
   const parts: Array<{ type: 'md' | 'sandbox'; content: string }> = [];
@@ -202,6 +229,11 @@ export default function App() {
   const [activeAgentNames, setActiveAgentNames] = useState<string[]>([]);
   const [doneAgentNames, setDoneAgentNames] = useState<string[]>([]);
 
+  // Presentation state
+  const [coverImage, setCoverImage] = useState<string | null>(null);
+  const [jsxBlock, setJsxBlock] = useState<string | null>(null);
+  const [presentationPhase, setPresentationPhase] = useState<'idle' | 'cover' | 'researching' | 'synthesizing' | 'presenting'>('idle');
+
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -278,6 +310,7 @@ export default function App() {
   const newSession = () => {
     const id = uid();
     setSessionId(id); setMessages([welcomeMsg]); setActivities([]); setActiveAgentNames([]); setDoneAgentNames([]);
+    setCoverImage(null); setJsxBlock(null); setPresentationPhase('idle');
     localStorage.setItem(ACTIVE_KEY, id);
   };
   const loadSessionById = (s: SavedSession) => {
@@ -318,6 +351,9 @@ export default function App() {
     setActivities([]);
     setActiveAgentNames([]);
     setDoneAgentNames([]);
+    setCoverImage(null);
+    setJsxBlock(null);
+    setPresentationPhase('cover');
 
     streamContentRef.current = '';
     streamThinkingRef.current = '';
@@ -357,10 +393,30 @@ export default function App() {
       onSwarmComplete: () => {
         setDoneAgentNames(prev => [...new Set([...prev, ...activeAgentNames])]);
       },
+      onCoverImage: (imageBase64) => {
+        console.log('[ThotBrain:cover]', imageBase64.length, 'chars');
+        setCoverImage(imageBase64);
+        setPresentationPhase('researching');
+      },
+      onSynthesisStart: () => {
+        setPresentationPhase('synthesizing');
+      },
+      onSynthesisComplete: () => {
+        setPresentationPhase('presenting');
+      },
+      onJSXBlock: (code) => {
+        console.log('[ThotBrain:jsx]', code.length, 'chars');
+        setJsxBlock(code);
+        setPresentationPhase('idle');
+      },
+      onPresentationStart: () => {
+        setPresentationPhase('presenting');
+      },
       onComplete: (fullText) => {
         setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullText || streamContentRef.current, thinking: streamThinkingRef.current || undefined } : m));
         setIsStreaming(false);
         streamMsgIdRef.current = '';
+        if (!jsxBlock) setPresentationPhase('idle');
       },
       onError: (error) => {
         setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: streamContentRef.current || `Error: ${error}` } : m));
@@ -503,6 +559,28 @@ export default function App() {
                           </div>
                         )}
 
+                        {/* Cover Image */}
+                        {isStreamingThis && coverImage && (
+                          <div className="mb-4 rounded-xl overflow-hidden shadow-lg border border-zinc-200">
+                            <img
+                              src={coverImage.startsWith('data:') ? coverImage : `data:image/png;base64,${coverImage}`}
+                              alt="Cover visualization"
+                              className="w-full h-auto max-h-[300px] object-cover"
+                            />
+                          </div>
+                        )}
+
+                        {/* Phase indicator */}
+                        {isStreamingThis && presentationPhase !== 'idle' && !streamContentRef.current && (
+                          <div className="flex items-center gap-3 text-zinc-500 font-medium text-sm bg-zinc-50 px-5 py-3.5 rounded-2xl border border-zinc-200/50 mb-3">
+                            <Loader2 className="w-4 h-4 animate-spin text-[#D4AF37]" />
+                            {presentationPhase === 'cover' && 'Generando portada visual...'}
+                            {presentationPhase === 'researching' && 'Los agentes est\u00e1n investigando...'}
+                            {presentationPhase === 'synthesizing' && 'Sintetizando resultados...'}
+                            {presentationPhase === 'presenting' && 'Preparando visualizaci\u00f3n interactiva...'}
+                          </div>
+                        )}
+
                         {isStreamingThis ? (
                           <div id={`stream-content-${msg.id}`} className="prose-streaming"
                             dangerouslySetInnerHTML={{ __html: fastMd(streamContentRef.current) + '<span class="cursor-blink"></span>' }} />
@@ -514,6 +592,11 @@ export default function App() {
                             ThotBrain est\u00e1 orquestando el enjambre de agentes...
                           </div>
                         ) : null}
+
+                        {/* JSX Presentation Block */}
+                        {jsxBlock && msg.id === messages[messages.length - 1]?.id && msg.role === 'assistant' && (
+                          <PresentationSandbox code={jsxBlock} />
+                        )}
 
                         {!isStreamingThis && msg.content && (
                           <button onClick={() => navigator.clipboard.writeText(msg.content)} className="mt-1 p-1 rounded text-zinc-300 hover:text-zinc-500 transition-colors">

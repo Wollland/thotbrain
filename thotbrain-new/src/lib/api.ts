@@ -22,6 +22,11 @@ export interface StreamCallbacks {
   onAgentReport?: (report: AgentReport) => void;
   onSwarmStart?: (count: number, agents: Array<{ name: string; task: string }>) => void;
   onSwarmComplete?: (count: number) => void;
+  onCoverImage?: (imageBase64: string) => void;
+  onSynthesisStart?: () => void;
+  onSynthesisComplete?: () => void;
+  onJSXBlock?: (code: string) => void;
+  onPresentationStart?: () => void;
   onComplete?: (fullText: string) => void;
   onError?: (error: string) => void;
 }
@@ -191,7 +196,15 @@ export function streamChat(
       let thinkingText = '';
       let reportBuffer: { agent: string; lines: string[] } | null = null;
 
+      let currentEventType = '';  // Track SSE event type
+
       const processLine = (line: string) => {
+        // Track event type from "event: xxx" lines
+        if (line.startsWith('event: ')) {
+          currentEventType = line.slice(7).trim();
+          return;
+        }
+
         if (!line.startsWith('data: ')) return;
         const data = line.slice(6).trim();
         if (!data || data === '[DONE]') return;
@@ -199,6 +212,49 @@ export function streamChat(
         let parsed: any;
         try { parsed = JSON.parse(data); } catch { return; }
 
+        // ── Handle typed SSE events ──
+        if (currentEventType) {
+          const evType = currentEventType;
+          currentEventType = '';  // Reset after consuming
+
+          switch (evType) {
+            case 'cover_image':
+              if (parsed.image) callbacks.onCoverImage?.(parsed.image);
+              return;
+            case 'jsx_block':
+              if (parsed.code) callbacks.onJSXBlock?.(parsed.code);
+              return;
+            case 'synthesis_start':
+              callbacks.onSynthesisStart?.();
+              return;
+            case 'synthesis_complete':
+              callbacks.onSynthesisComplete?.();
+              return;
+            case 'presentation_start':
+              callbacks.onPresentationStart?.();
+              return;
+            case 'swarm_start': {
+              const agents = parsed.agents?.map((a: any) => ({ name: a.orchName || a.name, task: a.task })) || [];
+              callbacks.onSwarmStart?.(parsed.count || agents.length, agents);
+              for (const a of agents) {
+                callbacks.onActivity?.({ agent: a.name, type: 'start', detail: a.task, timestamp: Date.now() });
+              }
+              return;
+            }
+            case 'swarm_complete':
+              callbacks.onSwarmComplete?.(parsed.count || 0);
+              return;
+            case 'agent_done':
+              callbacks.onActivity?.({ agent: parsed.agent, type: 'done', detail: `${parsed.elapsed?.toFixed(1)}s`, timestamp: Date.now() });
+              return;
+            case 'activity':
+              callbacks.onActivity?.(parsed as AgentActivity);
+              return;
+          }
+          // Unknown event type — fall through to normal processing
+        }
+
+        // ── Normal chat completion chunk processing ──
         const delta = parsed.choices?.[0]?.delta;
         if (!delta) return;
         const chunk = delta.content || '';
@@ -216,11 +272,10 @@ export function streamChat(
                           /^Synthesizing final/.test(chunk.trim()) ||
                           /^[🌐📄]\s+(Searching|Fetching):/.test(chunk.trim()) ||
                           /^✅\s+(Search|Fetch|Searched|Fetched)/.test(chunk.trim()) ||
-                          (reportBuffer !== null);  // Inside a multi-chunk report
+                          (reportBuffer !== null);
 
         if (isControl) {
           rawText += chunk;
-          // Parse control pattern directly from THIS chunk
           reportBuffer = parseControlChunk(chunk, callbacks, reportBuffer);
           return;
         }
@@ -249,7 +304,6 @@ export function streamChat(
           return;
         }
 
-        // Normal content: accumulate and emit delta
         rawText += chunk;
         callbacks.onDelta?.(chunk);
       };
@@ -275,4 +329,32 @@ export function streamChat(
       if (err.name === 'AbortError') return;
       callbacks.onError?.(err.message || 'Connection failed');
     });
+}
+
+// ── Standalone API calls ──
+
+export async function generateCover(query: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${ORCHESTRATOR}/v1/cover`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${API_KEY}` },
+      body: JSON.stringify({ query }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.image_base64 || null;
+  } catch { return null; }
+}
+
+export async function generatePresentation(synthesis: string, query: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${ORCHESTRATOR}/v1/present`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${API_KEY}` },
+      body: JSON.stringify({ synthesis, query }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.jsx || null;
+  } catch { return null; }
 }

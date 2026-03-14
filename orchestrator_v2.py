@@ -1,11 +1,11 @@
 """
-ThotBrain Agent Swarm Orchestrator v2
+ThotBrain Agent Swarm Orchestrator v2.1
 --------------------------------------
 Middleware between frontend (Open WebUI / ThotBrain React) and vLLM,
 orchestrating parallel sub-agent execution with Kimi K2.5's native tool calling.
 
 Architecture:
-  ThotBrain React :3000 → Orchestrator :8081 → vLLM :8000 (H200)
+  ThotBrain React :3000 → Orchestrator :8082 → vLLM :8000 (H200)
 
 v2 changes:
   - Connection pooling (shared httpx.AsyncClient)
@@ -63,6 +63,11 @@ SERPER_URL = "https://google.serper.dev/search"
 JINA_API_KEY = os.environ.get("JINA_API_KEY", "")
 JINA_READER_URL = "https://r.jina.ai/"
 
+# ─── Presentation Layer (Qwen3-Omni + Z-Image) ─────────────────────────────
+OMNI_BASE_URL = os.environ.get("OMNI_BASE_URL", "http://100.64.0.29:8200")
+OMNI_MODEL = os.environ.get("OMNI_MODEL", "Qwen3-Omni-30B-A3B-Instruct")
+ZIMAGE_BASE_URL = os.environ.get("ZIMAGE_BASE_URL", "http://100.64.0.29:8100")
+
 # ─── Agent Personas ──────────────────────────────────────────────────────────
 
 AGENT_PERSONAS = [
@@ -92,13 +97,6 @@ HOW TO USE spawn_agent:
 - Spawn 3-6 agents with different specialized roles
 - Each agent_id should reflect their specialty (e.g., "technical_analyst", "market_researcher", "legal_advisor")
 - Each task should be specific and focused on one aspect of the question
-- Be specific in the task description so each agent knows exactly what to research
-
-Example: For "Compare Kubernetes vs Docker Swarm", spawn:
-1. spawn_agent(agent_id="infrastructure_expert", task="Analyze Kubernetes architecture, scalability, and production readiness")
-2. spawn_agent(agent_id="devops_analyst", task="Analyze Docker Swarm simplicity, learning curve, and deployment workflow")
-3. spawn_agent(agent_id="cost_analyst", task="Compare total cost of ownership, licensing, and resource requirements")
-4. spawn_agent(agent_id="enterprise_advisor", task="Evaluate enterprise adoption, community support, and ecosystem maturity")
 
 You can also use web_search to find current information, and fetch_url to read specific web pages.
 
@@ -181,37 +179,23 @@ def get_ui_components(session_id: str | None = None) -> list[dict]:
     return DEFAULT_UI_COMPONENTS
 
 def build_synthesis_prompt(components: list[dict]) -> str:
-    """Build the synthesis system prompt that tells the LLM which UI components are available."""
-    comp_descriptions = []
-    for c in components:
-        props = ", ".join(f'"{k}": {v}' for k, v in c.get("props_schema", {}).items())
-        comp_descriptions.append(f'  - type: "{c["type"]}", props: {{{props}}}')
-    comp_list = "\n".join(comp_descriptions)
+    """Build synthesis prompt that produces CLEAN output — no agent references."""
+    return """You are a synthesis expert. You receive research reports and must produce a CLEAN, authoritative answer.
 
-    return f"""You are a research synthesis assistant. You receive reports from specialized research agents
-and must synthesize them into a comprehensive, well-structured final answer.
+CRITICAL RULES:
+1. NEVER mention agents, researchers, analysts, or how the information was gathered
+2. NEVER say "according to the research" or "the analysis found" or "Agent X reported"
+3. Write as if YOU are the expert who knows this information directly
+4. Be concise, structured, and actionable
+5. Use headers (##), bullet points, and bold for key data
+6. Focus on CONCLUSIONS and KEY DATA — not process
 
-You have TWO output modes:
+FORMAT:
+- Start with a clear, direct answer to the question
+- Follow with structured details (metrics, comparisons, key points)
+- End with actionable recommendations or key takeaways
 
-MODE 1 — STRUCTURED (when the frontend supports dynamic rendering):
-Return a JSON object with this exact structure:
-{{
-  "text": "Your markdown summary text here",
-  "blocks": [
-    {{"id": "unique-id", "type": "ComponentType", "props": {{...}}}}
-  ]
-}}
-
-Available UI components for blocks:
-{comp_list}
-
-MODE 2 — TEXT ONLY (default):
-Write the answer directly as markdown text. Do NOT call any functions or tools.
-
-Use MODE 1 only when the user's question naturally maps to structured data (metrics, charts, tables, legal analysis).
-For simple conversational answers, use MODE 2.
-
-Write the answer directly. Be comprehensive and well-structured."""
+Write in the same language as the original question."""
 
 # ─── Swarm Tools ─────────────────────────────────────────────────────────────
 
@@ -384,6 +368,119 @@ def _sse_chunk(content: str, model: str = "") -> str:
 def _sse_event(event_type: str, data: dict) -> str:
     """Create a typed SSE event for structured agent activity."""
     return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+
+# ─── Presentation Layer Helpers ─────────────────────────────────────────────
+
+COVER_PROMPT_SYSTEM = """You are an expert at creating image generation prompts for diffusion models.
+Given a user's question or topic, create ONE visual prompt in English, maximum 30 words.
+Style: photorealistic, cinematic lighting, 4K quality.
+Output ONLY the prompt text, nothing else. No quotes, no explanation."""
+
+JSX_PRESENTER_SYSTEM = """You are a React/JSX presentation expert. You receive a research synthesis and must create a single React component that visualizes the key information.
+
+RULES:
+1. Output ONLY valid JSX code — no markdown, no explanation, no code fences
+2. The component must be named "App" and use no imports (React is global, as are recharts components)
+3. Available global components from Recharts: BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis
+4. Use inline styles only (no CSS classes, no Tailwind)
+5. Use a clean, modern design with these colors: #D4AF37 (gold), #18181b (dark), #f4f4f5 (light bg), #3b82f6 (blue), #10b981 (green), #ef4444 (red), #8b5cf6 (purple)
+6. Include data visualization when the content has metrics, comparisons, or statistics
+7. For text-heavy content, create a well-structured card layout with key highlights
+8. Keep it under 150 lines of code
+9. The component should be self-contained with hardcoded data extracted from the synthesis
+
+IMPORTANT: Start directly with "function App() {" — no imports, no exports, no comments before it."""
+
+
+async def generate_cover_image(query: str) -> str | None:
+    """Generate a cover image: query → Omni (prompt translation) → Z-Image (generation).
+    Returns base64 image string or None on failure."""
+    try:
+        # Step 1: Omni translates user query to image prompt
+        prompt_payload = {
+            "model": OMNI_MODEL,
+            "messages": [
+                {"role": "system", "content": COVER_PROMPT_SYSTEM},
+                {"role": "user", "content": query},
+            ],
+            "max_tokens": 80,
+            "temperature": 0.7,
+            "stream": False,
+        }
+        resp = await http_client.post(
+            f"{OMNI_BASE_URL}/v1/chat/completions",
+            json=prompt_payload,
+            timeout=15.0,
+        )
+        if resp.status_code != 200:
+            log.warning("Omni prompt generation failed: HTTP %d", resp.status_code)
+            return None
+
+        image_prompt = resp.json()["choices"][0]["message"]["content"].strip()
+        log.info("Cover image prompt: %s", image_prompt[:100])
+
+        # Step 2: Z-Image generates the image
+        img_resp = await http_client.post(
+            f"{ZIMAGE_BASE_URL}/generate",
+            json={"prompt": image_prompt, "width": 1024, "height": 576},
+            timeout=30.0,
+        )
+        if img_resp.status_code != 200:
+            log.warning("Z-Image generation failed: HTTP %d", img_resp.status_code)
+            return None
+
+        image_b64 = img_resp.json().get("image_base64", "")
+        log.info("Cover image generated: %d chars base64", len(image_b64))
+        return image_b64
+
+    except Exception as e:
+        log.error("Cover image pipeline failed: %s", e)
+        return None
+
+
+async def generate_jsx_presentation(synthesis: str, original_query: str) -> str | None:
+    """Send synthesis to Omni to generate a JSX React component for visualization.
+    Returns JSX code string or None on failure."""
+    try:
+        payload = {
+            "model": OMNI_MODEL,
+            "messages": [
+                {"role": "system", "content": JSX_PRESENTER_SYSTEM},
+                {"role": "user", "content": f"Original question: {original_query}\n\nResearch synthesis to visualize:\n\n{synthesis}"},
+            ],
+            "max_tokens": 4096,
+            "temperature": 0.3,
+            "stream": False,
+        }
+        resp = await http_client.post(
+            f"{OMNI_BASE_URL}/v1/chat/completions",
+            json=payload,
+            timeout=60.0,
+        )
+        if resp.status_code != 200:
+            log.warning("Omni JSX generation failed: HTTP %d", resp.status_code)
+            return None
+
+        jsx_code = resp.json()["choices"][0]["message"]["content"].strip()
+
+        # Clean up: remove markdown code fences if present
+        if jsx_code.startswith("```"):
+            lines = jsx_code.split("\n")
+            # Remove first line (```jsx or ```) and last line (```)
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            jsx_code = "\n".join(lines)
+
+        # Validate it looks like JSX
+        if "function App" not in jsx_code and "const App" not in jsx_code:
+            log.warning("Generated JSX doesn't contain App component, skipping")
+            return None
+
+        log.info("JSX presentation generated: %d chars", len(jsx_code))
+        return jsx_code
+
+    except Exception as e:
+        log.error("JSX presentation pipeline failed: %s", e)
+        return None
 
 # ─── Tool Call Parsing ───────────────────────────────────────────────────────
 
@@ -638,6 +735,10 @@ async def orchestrate_stream(
         tool_calls_list = [assembled_tool_calls[i] for i in sorted(assembled_tool_calls.keys())]
         log.info("Tool calls detected: %s", [tc["function"]["name"] for tc in tool_calls_list])
 
+        # --- Cover Image (fires in parallel with agent work) ---
+        original_query = messages[-1].get("content", "") if messages else ""
+        cover_task = asyncio.ensure_future(generate_cover_image(original_query))
+
         # Per-request persona assignment
         assign_persona = make_persona_assigner()
         spawn_tasks, search_tasks, fetch_tasks = parse_tool_calls(tool_calls_list)
@@ -681,6 +782,16 @@ async def orchestrate_stream(
                 ],
             })
 
+            # Check if cover image is ready
+            if cover_task.done() and not cover_task.cancelled():
+                try:
+                    cover_b64 = cover_task.result()
+                    if cover_b64:
+                        yield _sse_event("cover_image", {"image": cover_b64})
+                        log.info("Cover image delivered during swarm launch")
+                except Exception as e:
+                    log.warning("Cover image failed: %s", e)
+
             # Activity queue for real-time reporting
             activity_queue = asyncio.Queue()
 
@@ -706,6 +817,18 @@ async def orchestrate_stream(
                         yield _sse_chunk(f"[ACTIVITY:{act['agent']}:{act['type']}] {act.get('detail', '')}\n", model)
                     except asyncio.QueueEmpty:
                         break
+
+                # Deliver cover image when ready
+                if cover_task and not cover_task.cancelled() and cover_task.done():
+                    try:
+                        cover_b64 = cover_task.result()
+                        if cover_b64:
+                            yield _sse_event("cover_image", {"image": cover_b64})
+                            log.info("Cover image delivered during agent work")
+                        cover_task = None  # Only deliver once
+                    except Exception as e:
+                        log.warning("Cover image failed: %s", e)
+                        cover_task = None
 
                 done_set, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED, timeout=0.5)
 
@@ -745,15 +868,14 @@ async def orchestrate_stream(
 
         # --- Synthesis ---
         reports_text = "\n\n".join(tr["content"] for tr in tool_results)
+        original_query = messages[-1].get("content", "") if messages else ""
 
         ui_components = get_ui_components(session_id)
         synthesis_system = build_synthesis_prompt(ui_components)
 
         synth_messages = [
             {"role": "system", "content": synthesis_system},
-            messages[-1],  # Original user question
-            {"role": "assistant", "content": "I dispatched specialized research agents to investigate this. Here are their completed reports:"},
-            {"role": "user", "content": f"AGENT REPORTS:\n\n{reports_text}\n\nBased on these reports, provide a comprehensive synthesized answer to my original question."},
+            {"role": "user", "content": f"Original question: {original_query}\n\nRESEARCH REPORTS:\n\n{reports_text}\n\nProvide a clean, authoritative synthesis. Do NOT mention agents or how the information was gathered."},
         ]
 
         synth_payload = {
@@ -766,6 +888,9 @@ async def orchestrate_stream(
 
         synth_reasoning = False
         synth_content = False
+        full_synthesis = []  # Collect full synthesis for JSX generation
+
+        yield _sse_event("synthesis_start", {"status": "generating"})
 
         await vllm_semaphore.acquire()
         try:
@@ -781,7 +906,6 @@ async def orchestrate_stream(
                     if raw.strip() == "[DONE]":
                         if synth_reasoning and not synth_content:
                             yield _sse_chunk("\n</think>\n\n", model)
-                        yield f"{line}\n\n"
                         break
                     try:
                         chunk = json.loads(raw)
@@ -798,11 +922,29 @@ async def orchestrate_stream(
                         if synth_reasoning and not synth_content:
                             synth_content = True
                             yield _sse_chunk("\n</think>\n\n", model)
-                        yield _sse_chunk(delta["content"], model)
+                        text = delta["content"]
+                        full_synthesis.append(text)
+                        yield _sse_chunk(text, model)
                     else:
                         yield f"{line}\n\n"
         finally:
             vllm_semaphore.release()
+
+        yield _sse_event("synthesis_complete", {"status": "done"})
+
+        # --- JSX Presentation (Omni) ---
+        synthesis_text = "".join(full_synthesis)
+        if synthesis_text and len(synthesis_text) > 100:
+            yield _sse_event("presentation_start", {"status": "generating_jsx"})
+            jsx_code = await generate_jsx_presentation(synthesis_text, original_query)
+            if jsx_code:
+                yield _sse_event("jsx_block", {"code": jsx_code})
+                log.info("JSX presentation sent to frontend")
+            else:
+                log.info("JSX presentation skipped (generation failed or too short)")
+
+        # Final DONE
+        yield "data: [DONE]\n\n"
 
 
 # ─── Non-streaming Orchestration ────────────────────────────────────────────
@@ -833,7 +975,7 @@ async def orchestrate(messages: list, max_tokens: int, temperature: float, model
 async def api_info():
     return {
         "service": "ThotBrain Agent Swarm Orchestrator",
-        "version": "2.0",
+        "version": "2.1-stage2a",
         "model": DEFAULT_MODEL,
         "tools": ["web_search", "fetch_url", "spawn_agent"],
         "endpoints": {
@@ -841,6 +983,8 @@ async def api_info():
             "models": "GET /v1/models",
             "health": "GET /health",
             "handshake": "POST /v1/handshake",
+            "cover": "POST /v1/cover",
+            "present": "POST /v1/present",
         },
         "config": {
             "max_parallel_agents": MAX_PARALLEL_AGENTS,
@@ -852,12 +996,15 @@ async def api_info():
 
 @app.get("/health")
 async def health():
-    try:
-        resp = await http_client.get(f"{VLLM_BASE_URL}/health")
-        vllm_ok = resp.status_code == 200
-    except Exception:
-        vllm_ok = False
-    return {"status": "ok" if vllm_ok else "degraded", "vllm": vllm_ok}
+    checks = {}
+    for name, url in [("vllm", VLLM_BASE_URL), ("omni", OMNI_BASE_URL), ("zimage", ZIMAGE_BASE_URL)]:
+        try:
+            resp = await http_client.get(f"{url}/health", timeout=5.0)
+            checks[name] = resp.status_code == 200
+        except Exception:
+            checks[name] = False
+    all_ok = all(checks.values())
+    return {"status": "ok" if all_ok else "degraded", **checks}
 
 
 @app.get("/v1/models")
@@ -933,6 +1080,33 @@ async def list_keys(request: Request):
     return [{"name": v["name"], "created": v["created"]} for v in keys.values()]
 
 
+@app.post("/v1/cover")
+async def api_cover(request: Request):
+    """Generate a cover image from a query."""
+    body = await request.json()
+    query = body.get("query", "")
+    if not query:
+        raise HTTPException(status_code=400, detail="query is required")
+    image_b64 = await generate_cover_image(query)
+    if image_b64:
+        return {"image_base64": image_b64}
+    raise HTTPException(status_code=502, detail="Image generation failed")
+
+
+@app.post("/v1/present")
+async def api_present(request: Request):
+    """Generate a JSX presentation from synthesis text."""
+    body = await request.json()
+    synthesis = body.get("synthesis", "")
+    query = body.get("query", "")
+    if not synthesis:
+        raise HTTPException(status_code=400, detail="synthesis is required")
+    jsx_code = await generate_jsx_presentation(synthesis, query)
+    if jsx_code:
+        return {"jsx": jsx_code}
+    raise HTTPException(status_code=502, detail="JSX generation failed")
+
+
 # ── Static Files & SPA ───────────────────────────────────────────────────────
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'thotbrain-dist')
@@ -962,4 +1136,4 @@ async def serve_favicon():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8081)
+    uvicorn.run(app, host="0.0.0.0", port=8082)
