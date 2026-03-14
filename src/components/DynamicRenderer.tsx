@@ -2,12 +2,20 @@ import React from 'react';
 import { MarketingChart } from './widgets/MarketingChart';
 import { TechSpecs } from './widgets/TechSpecs';
 import { LegalReport } from './widgets/LegalReport';
+import { SummaryCard } from './widgets/SummaryCard';
+import { DataTable } from './widgets/DataTable';
+import { MetricGrid } from './widgets/MetricGrid';
+import { SandboxJSX } from './widgets/SandboxJSX';
 
 // Registro de componentes disponibles para el agente remoto
 const componentRegistry: Record<string, React.FC<any>> = {
   'MarketingChart': MarketingChart,
   'TechSpecs': TechSpecs,
   'LegalReport': LegalReport,
+  'SummaryCard': SummaryCard,
+  'DataTable': DataTable,
+  'MetricGrid': MetricGrid,
+  'SandboxJSX': SandboxJSX,
 };
 
 export interface DynamicBlock {

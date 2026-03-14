@@ -391,14 +391,14 @@ export default function App() {
           uiData: dynamicBlocks
         }];
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
       setMessages(prev => {
         const filtered = prev.filter(m => m.id !== thinkingId);
         return [...filtered, {
           id: Date.now().toString() + 'err',
           role: 'agent',
-          content: 'Hubo un error al procesar la solicitud con Gemini API. Asegúrate de que la API Key está configurada correctamente.'
+          content: `Hubo un error al procesar la solicitud con Gemini API: ${error?.message || 'Error desconocido'}`
         }];
       });
     } finally {

@@ -41,8 +41,13 @@ export const runAgentSwarm = async (
   onThought: (thought: any) => void
 ) => {
   try {
+    // 1. Handshake Phase
+    onThought({ id: Date.now().toString() + 'hs1', type: 'system', text: 'Iniciando Handshake con el cliente...' });
+    onThought({ id: Date.now().toString() + 'hs2', type: 'system', text: 'Descubriendo componentes UI disponibles: MarketingChart, TechSpecs, LegalReport, SummaryCard, DataTable, MetricGrid, SandboxJSX.' });
+    onThought({ id: Date.now().toString() + 'hs3', type: 'system', text: 'Descubriendo MCP Tools disponibles: github_mcp_get_repo_info, custom_erp_query, googleSearch.' });
+    
     onThought({ id: Date.now().toString(), type: 'system', text: `Analizando prompt: "${prompt}"` });
-    onThought({ id: Date.now().toString() + '1', type: 'orchestration', text: 'Ruteo semántico completado. Activando especialistas requeridos.' });
+    onThought({ id: Date.now().toString() + '1', type: 'orchestration', text: 'Ruteo semántico completado. Activando especialistas requeridos dinámicamente.' });
     
     // Agent 1: Ingeniero (Uses GitHub MCP emulation)
     onProgress({ id: 1, status: 'ANALIZANDO', progress: 20 });
@@ -102,7 +107,8 @@ export const runAgentSwarm = async (
 
     // Synthesizer
     const synthPrompt = `
-      Basado en los siguientes análisis, genera un JSON estricto para renderizar la UI.
+      Eres el Director de Arte y Presentación de ThotBrain.
+      Basado en los siguientes análisis, genera un JSON estricto para renderizar una UI rica, espectacular y altamente visual.
       
       Análisis del Ingeniero: ${engRes}
       Análisis del Comercial: ${comRes}
@@ -110,38 +116,44 @@ export const runAgentSwarm = async (
       
       Instrucciones:
       Devuelve ÚNICAMENTE un array JSON válido, sin bloques de código Markdown (sin \`\`\`json).
-      El array debe contener exactamente 3 objetos con la siguiente estructura:
+      El array debe contener objetos que representen bloques de UI. 
       
-      [
-        {
-          "id": "block-1",
-          "type": "MarketingChart",
-          "props": {
-            "title": "Proyección de Ventas",
-            "description": "Basado en el análisis comercial",
-            "data": [{"name": "Q1", "value": 100}, {"name": "Q2", "value": 150}]
-          }
-        },
-        {
-          "id": "block-2",
-          "type": "TechSpecs",
-          "props": {
-            "title": "Arquitectura Propuesta",
-            "specs": [{"name": "Servidor", "category": "infrastructure", "status": "ready"}]
-          }
-        },
-        {
-          "id": "block-3",
-          "type": "LegalReport",
-          "props": {
-            "title": "Auditoría Legal",
-            "documentType": "Reporte de Riesgos",
-            "clauses": [{"title": "Privacidad", "riskLevel": "low", "summary": "Cumple normativas"}]
-          }
-        }
-      ]
+      IMPORTANTE: Tienes que crear una experiencia visual impactante. NO te limites a texto plano.
       
-      Asegúrate de rellenar los datos ("data", "specs", "clauses") con información inventada pero coherente basada en los análisis proporcionados.
+      Componentes disponibles (usa el campo "type" exacto):
+      
+      1. "SummaryCard"
+         props: { "title": string, "content": string }
+         
+      2. "DataTable"
+         props: { "title": string, "columns": [{"key": string, "label": string}], "rows": [{"key": valor, ...}] }
+         
+      3. "MetricGrid"
+         props: { "title": string, "metrics": [{"label": string, "value": string|number, "trend": "up"|"down"|"neutral", "trendValue": string}] }
+         
+      4. "MarketingChart"
+         props: { "title": string, "description": string, "data": [{"name": string, "value": number}] }
+         
+      5. "TechSpecs"
+         props: { "title": string, "specs": [{"name": string, "category": "infrastructure"|"frontend"|"backend"|"security", "status": "ready"|"pending"|"warning"}] }
+         
+      6. "LegalReport"
+         props: { "title": string, "documentType": string, "clauses": [{"title": string, "riskLevel": "low"|"medium"|"high", "summary": string}] }
+         
+      7. "SandboxJSX"
+         props: { "code": string }
+         *USO OBLIGATORIO PARA GRÁFICOS COMPLEJOS*: Usa este componente para crear dashboards interactivos, gráficos de tarta (PieChart), gráficos de área (AreaChart) o interfaces personalizadas.
+         Genera el código fuente de un componente funcional de React en formato string y pásalo en la propiedad 'code'.
+         El código debe ser una función anónima que retorna JSX. Ej: "() => { return <div className=\\"p-4 bg-white rounded shadow\\">...</div> }"
+         Tienes disponible en el scope global: React, useState, useEffect, todos los iconos de lucide-react (ej. <Activity />), y todos los componentes de recharts (ej. <PieChart />, <Pie />, <AreaChart />, <Area />, <XAxis />, <YAxis />, <Tooltip />, <ResponsiveContainer />).
+         Usa clases de Tailwind CSS para los estilos. Asegúrate de escapar correctamente las comillas dobles dentro del string JSON.
+
+      REGLAS DE ORO:
+      - Genera entre 3 y 5 bloques.
+      - DEBES incluir al menos un componente "SandboxJSX" que renderice un gráfico avanzado usando 'recharts' (ej. un PieChart con los datos del mercado o un AreaChart con la viabilidad).
+      - DEBES incluir al menos un "MetricGrid" con los KPIs principales extraídos de los análisis.
+      - Los datos mostrados DEBEN estar directamente relacionados con la consulta original: "${prompt}".
+      - Inventa datos numéricos realistas y coherentes si no están explícitos en el análisis, pero mantén la temática.
     `;
 
     const finalRes = await ai.models.generateContent({
