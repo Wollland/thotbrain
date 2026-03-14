@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ThotBrain — Agent Swarm Orchestrator</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>" />
+    <link rel="stylesheet" crossorigin href="/assets/index-DvBH_278.css">
+    <script>
+      window.onerror = function(msg, url, line, col, err) {
+        document.getElementById('root').innerHTML = '<div style="padding:40px;font-family:monospace"><h1 style="color:red">JS Error</h1><pre>' + msg + '\n' + url + ':' + line + ':' + col + '\n' + (err && err.stack ? err.stack : '') + '</pre></div>';
+      };
+    </script>
+    <script type="module" crossorigin src="/assets/index-Cna4diZH.js"></script>
+  </head>
+  <body>
+    <div id="root">
+      <div style="padding:40px;font-family:sans-serif;color:#666">
+        <p>Cargando ThotBrain...</p>
+        <p style="font-size:12px">Si ves este mensaje por más de 5 segundos, revisa la consola del navegador (F12).</p>
+      </div>
+    </div>
+  </body>
+</html>

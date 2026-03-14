@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+venv/
+node_modules/
+thotbrain-new/node_modules/
+*.log
+api_keys.json
+.env
