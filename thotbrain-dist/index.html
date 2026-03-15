@@ -5,42 +5,10 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ThotBrain</title>
-    <style>
-      #boot-error { display:none; position:fixed; inset:0; z-index:9999; padding:40px; font-family:monospace; background:#0a0a0f; color:#e4e4ed; overflow:auto; }
-      #boot-error.visible { display:block; }
-      #boot-error h1 { color:#ef4444; margin-bottom:16px; }
-      #boot-error pre { background:#1a1a26; padding:16px; border-radius:8px; overflow:auto; font-size:13px; color:#f87171; white-space:pre-wrap; }
-      #boot-loading { position:fixed; inset:0; z-index:9998; display:flex; align-items:center; justify-content:center; font-size:18px; color:#9898b0; flex-direction:column; gap:12px; background:#FDFDFD; }
-      #boot-loading .spinner { width:32px; height:32px; border:3px solid #e4e4ed; border-top-color:#D4AF37; border-radius:50%; animation:spin 0.8s linear infinite; }
-      @keyframes spin { to { transform:rotate(360deg); } }
-    </style>
+    <script type="module" crossorigin src="/assets/index-DfnI-wgW.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-GKpYJUPG.css">
   </head>
   <body>
-    <div id="boot-error"></div>
-    <div id="boot-loading"><div class="spinner"></div><span>Loading ThotBrain...</span></div>
     <div id="root"></div>
-    <script>
-      window.addEventListener('error', function(e) {
-        var el = document.getElementById('boot-error');
-        el.className = 'visible';
-        el.innerHTML = '<h1>JS Error</h1><pre>' + (e.message||e) + '\n' + (e.filename||'') + ':' + (e.lineno||'') + ':' + (e.colno||'') + '\n\n' + (e.error&&e.error.stack?e.error.stack:'') + '</pre>';
-        document.getElementById('boot-loading').style.display = 'none';
-      });
-      window.addEventListener('unhandledrejection', function(e) {
-        var el = document.getElementById('boot-error');
-        el.className = 'visible';
-        el.innerHTML = '<h1>Promise Error</h1><pre>' + (e.reason?(e.reason.message||e.reason):'Unknown') + '\n' + (e.reason&&e.reason.stack?e.reason.stack:'') + '</pre>';
-        document.getElementById('boot-loading').style.display = 'none';
-      });
-      new MutationObserver(function(m,obs) {
-        var root = document.getElementById('root');
-        if (root && root.children.length > 0) {
-          document.getElementById('boot-loading').style.display = 'none';
-          obs.disconnect();
-        }
-      }).observe(document.getElementById('root'), { childList: true });
-    </script>
-    <script type="module" crossorigin src="/assets/index-C0ALpkId.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-CY8sJUMb.css">
   </body>
 </html>

@@ -86,6 +86,7 @@ function fastMd(rawText: string): string {
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/`([^`\n]+)`/g, '<code class="inline-code">$1</code>')
+    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width:100%;border-radius:8px;margin:8px 0" />')
     .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
     .replace(/^[-*] (.+)$/gm, '<li>$1</li>')
     .replace(/^\d+\.\s(.+)$/gm, '<li>$1</li>')
@@ -95,46 +96,58 @@ function fastMd(rawText: string): string {
 }
 
 // ─── React Sandbox ───
+// Mirrors the EXACT approach from sandbox.html (which works perfectly):
+// 1. Load React/ReactDOM/PropTypes/Babel as static <script> tags
+// 2. Load Recharts DYNAMICALLY via createElement("script") + onload
+// 3. Wrap JSX in IIFE that returns the component: (function(){CODE\nreturn Presentation;})()
+// 4. Capture component via var Comp = eval(transformed)
 function ReactSandbox({ code }: { code: string }) {
-  const [show, setShow] = useState(false);
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script><script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script><script src="https://unpkg.com/@babel/standalone/babel.min.js"></script><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,sans-serif;padding:16px;background:#fff}</style></head><body><div id="root"></div><script type="text/babel">${code.replace(/<\/script>/g, '<\\/script>')}
-const root=ReactDOM.createRoot(document.getElementById('root'));try{if(typeof App!=='undefined')root.render(React.createElement(App));else if(typeof Component!=='undefined')root.render(React.createElement(Component));}catch(e){document.getElementById('root').innerHTML='<pre style="color:red">'+e.message+'</pre>';}</script></body></html>`;
+  const [show, setShow] = useState(true);
+  // Escape for safe embedding inside a JS single-quoted string
+  const escaped = code
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\n/g, '\\n')
+    .replace(/<\/script>/gi, '<\\/script>');
+  // Build HTML exactly like the working sandbox.html demo
+  const SC = "</' + 'script>";
+  let h = '<!DOCTYPE html><html><head><meta charset="UTF-8">';
+  h += '<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#fff;color:#1a1a2e;padding:16px;min-height:100vh}</style>';
+  h += '</head><body>';
+  h += '<div id="root"><div style="color:#888;padding:40px;text-align:center">Cargando bibliotecas...</div></div>';
+  h += '<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"><' + '/script>';
+  h += '<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"><' + '/script>';
+  h += '<script src="https://cdnjs.cloudflare.com/ajax/libs/prop-types/15.8.1/prop-types.min.js"><' + '/script>';
+  h += '<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"><' + '/script>';
+  h += '<script>';
+  h += 'var s=document.createElement("script");';
+  h += 's.src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js";';
+  h += 's.onload=function(){';
+  h += '  if(window.Recharts){Object.keys(window.Recharts).forEach(function(k){window[k]=window.Recharts[k]})}';
+  h += '  try{';
+  h += '    var jsxCode="(function(){" + \'' + escaped + '\' + "\\nreturn typeof Presentation!==\\"undefined\\"?Presentation:typeof App!==\\"undefined\\"?App:typeof Dashboard!==\\"undefined\\"?Dashboard:typeof Component!==\\"undefined\\"?Component:typeof Chart!==\\"undefined\\"?Chart:null;})()";';
+  h += '    var transformed=Babel.transform(jsxCode,{presets:["react"]}).code;';
+  h += '    var Comp=eval(transformed);';
+  h += '    if(Comp){var root=ReactDOM.createRoot(document.getElementById("root"));root.render(React.createElement(Comp));}';
+  h += '    else{document.getElementById("root").innerHTML="<div style=\\"padding:20px;color:#666\\">No component found</div>";}';
+  h += '  }catch(e){';
+  h += '    document.getElementById("root").innerHTML="<div style=\\"color:#e74c3c;padding:20px\\"><h3>Render Error</h3><pre style=\\"white-space:pre-wrap\\">"+e.message+"\\n"+e.stack+"</pre></div>"';
+  h += '  }';
+  h += '};';
+  h += 's.onerror=function(){document.getElementById("root").innerHTML="<div style=\\"color:#e74c3c;padding:20px\\">Failed to load Recharts CDN</div>"};';
+  h += 'document.head.appendChild(s);';
+  h += '<' + '/script>';
+  h += '</body></html>';
+  const html = h;
   return (
-    <div className="my-2 border border-zinc-200 rounded-xl overflow-hidden">
+    <div className="my-3 border border-zinc-200 rounded-xl overflow-hidden shadow-sm">
       <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-50 border-b border-zinc-200">
-        <div className="flex items-center gap-2 text-[11px] font-semibold text-zinc-500"><Code className="w-3.5 h-3.5" /><span>React Component</span></div>
+        <div className="flex items-center gap-2 text-[11px] font-semibold text-zinc-500"><Code className="w-3.5 h-3.5" /><span>Visualizaci&oacute;n Interactiva</span><span className="text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold">Recharts</span></div>
         <button onClick={() => setShow(!show)} className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold bg-black text-[#D4AF37] hover:bg-zinc-800 transition-colors">
           {show ? <ChevronUp className="w-3 h-3" /> : <Play className="w-3 h-3" />}{show ? 'Ocultar' : 'Preview'}
         </button>
       </div>
-      {show && <iframe srcDoc={html} sandbox="allow-scripts" className="w-full border-0 bg-white" style={{ height: '400px', resize: 'vertical' }} title="React Preview" />}
-    </div>
-  );
-}
-
-// ─── Auto-open React Sandbox (for presentations) ───
-function PresentationSandbox({ code }: { code: string }) {
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script><script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script><script src="https://unpkg.com/@babel/standalone/babel.min.js"></script><script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js" crossorigin></script><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:16px;background:#fff}</style></head><body><div id="root"></div><script type="text/babel">
-const {BarChart,Bar,LineChart,Line,PieChart,Pie,Cell,XAxis,YAxis,CartesianGrid,Tooltip,Legend,ResponsiveContainer,AreaChart,Area,RadarChart,Radar,PolarGrid,PolarAngleAxis,PolarRadiusAxis} = Recharts;
-${code.replace(/<\/script>/g, '<\\/script>')}
-const root=ReactDOM.createRoot(document.getElementById('root'));try{if(typeof App!=='undefined')root.render(React.createElement(App));else if(typeof Component!=='undefined')root.render(React.createElement(Component));}catch(e){document.getElementById('root').innerHTML='<pre style="color:red;padding:16px">'+e.message+'\\n'+e.stack+'</pre>';}</script></body></html>`;
-
-  return (
-    <div className="my-3 border border-zinc-200 rounded-xl overflow-hidden shadow-lg animate-in fade-in slide-in-from-bottom-2">
-      <div className="flex items-center justify-between px-4 py-2 bg-gradient-to-r from-zinc-900 to-zinc-800 border-b border-zinc-700">
-        <div className="flex items-center gap-2 text-[11px] font-semibold text-[#D4AF37]">
-          <Sparkles className="w-3.5 h-3.5" />
-          <span>Visualización Interactiva</span>
-        </div>
-        <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Powered by Qwen3-Omni</span>
-      </div>
-      <iframe
-        srcDoc={html}
-        sandbox="allow-scripts"
-        className="w-full border-0 bg-white"
-        style={{ height: '500px', resize: 'vertical' }}
-        title="Presentation"
-      />
+      {show && <iframe srcDoc={html} sandbox="allow-scripts allow-same-origin" className="w-full border-0 bg-white" style={{ height: '450px', resize: 'vertical' }} title="React Preview" />}
     </div>
   );
 }
@@ -229,11 +242,6 @@ export default function App() {
   const [activeAgentNames, setActiveAgentNames] = useState<string[]>([]);
   const [doneAgentNames, setDoneAgentNames] = useState<string[]>([]);
 
-  // Presentation state
-  const [coverImage, setCoverImage] = useState<string | null>(null);
-  const [jsxBlock, setJsxBlock] = useState<string | null>(null);
-  const [presentationPhase, setPresentationPhase] = useState<'idle' | 'cover' | 'researching' | 'synthesizing' | 'presenting'>('idle');
-
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -268,6 +276,15 @@ export default function App() {
     }
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, []);
+
+  // Auto-scroll when messages change or streaming ends
+  useEffect(() => {
+    if (scrollRef.current) {
+      requestAnimationFrame(() => {
+        if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      });
+    }
+  }, [messages, isStreaming]);
 
   // Health check
   useEffect(() => {
@@ -310,7 +327,6 @@ export default function App() {
   const newSession = () => {
     const id = uid();
     setSessionId(id); setMessages([welcomeMsg]); setActivities([]); setActiveAgentNames([]); setDoneAgentNames([]);
-    setCoverImage(null); setJsxBlock(null); setPresentationPhase('idle');
     localStorage.setItem(ACTIVE_KEY, id);
   };
   const loadSessionById = (s: SavedSession) => {
@@ -351,9 +367,6 @@ export default function App() {
     setActivities([]);
     setActiveAgentNames([]);
     setDoneAgentNames([]);
-    setCoverImage(null);
-    setJsxBlock(null);
-    setPresentationPhase('cover');
 
     streamContentRef.current = '';
     streamThinkingRef.current = '';
@@ -393,30 +406,10 @@ export default function App() {
       onSwarmComplete: () => {
         setDoneAgentNames(prev => [...new Set([...prev, ...activeAgentNames])]);
       },
-      onCoverImage: (imageBase64) => {
-        console.log('[ThotBrain:cover]', imageBase64.length, 'chars');
-        setCoverImage(imageBase64);
-        setPresentationPhase('researching');
-      },
-      onSynthesisStart: () => {
-        setPresentationPhase('synthesizing');
-      },
-      onSynthesisComplete: () => {
-        setPresentationPhase('presenting');
-      },
-      onJSXBlock: (code) => {
-        console.log('[ThotBrain:jsx]', code.length, 'chars');
-        setJsxBlock(code);
-        setPresentationPhase('idle');
-      },
-      onPresentationStart: () => {
-        setPresentationPhase('presenting');
-      },
       onComplete: (fullText) => {
         setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullText || streamContentRef.current, thinking: streamThinkingRef.current || undefined } : m));
         setIsStreaming(false);
         streamMsgIdRef.current = '';
-        if (!jsxBlock) setPresentationPhase('idle');
       },
       onError: (error) => {
         setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: streamContentRef.current || `Error: ${error}` } : m));
@@ -559,28 +552,6 @@ export default function App() {
                           </div>
                         )}
 
-                        {/* Cover Image */}
-                        {isStreamingThis && coverImage && (
-                          <div className="mb-4 rounded-xl overflow-hidden shadow-lg border border-zinc-200">
-                            <img
-                              src={coverImage.startsWith('data:') ? coverImage : `data:image/png;base64,${coverImage}`}
-                              alt="Cover visualization"
-                              className="w-full h-auto max-h-[300px] object-cover"
-                            />
-                          </div>
-                        )}
-
-                        {/* Phase indicator */}
-                        {isStreamingThis && presentationPhase !== 'idle' && !streamContentRef.current && (
-                          <div className="flex items-center gap-3 text-zinc-500 font-medium text-sm bg-zinc-50 px-5 py-3.5 rounded-2xl border border-zinc-200/50 mb-3">
-                            <Loader2 className="w-4 h-4 animate-spin text-[#D4AF37]" />
-                            {presentationPhase === 'cover' && 'Generando portada visual...'}
-                            {presentationPhase === 'researching' && 'Los agentes est\u00e1n investigando...'}
-                            {presentationPhase === 'synthesizing' && 'Sintetizando resultados...'}
-                            {presentationPhase === 'presenting' && 'Preparando visualizaci\u00f3n interactiva...'}
-                          </div>
-                        )}
-
                         {isStreamingThis ? (
                           <div id={`stream-content-${msg.id}`} className="prose-streaming"
                             dangerouslySetInnerHTML={{ __html: fastMd(streamContentRef.current) + '<span class="cursor-blink"></span>' }} />
@@ -592,11 +563,6 @@ export default function App() {
                             ThotBrain est\u00e1 orquestando el enjambre de agentes...
                           </div>
                         ) : null}
-
-                        {/* JSX Presentation Block */}
-                        {jsxBlock && msg.id === messages[messages.length - 1]?.id && msg.role === 'assistant' && (
-                          <PresentationSandbox code={jsxBlock} />
-                        )}
 
                         {!isStreamingThis && msg.content && (
                           <button onClick={() => navigator.clipboard.writeText(msg.content)} className="mt-1 p-1 rounded text-zinc-300 hover:text-zinc-500 transition-colors">

@@ -21,12 +21,14 @@ v2 changes:
 """
 
 import asyncio
+import re
 import hashlib
 import json
 import logging
 import os
 import secrets
 import time
+import base64
 import uuid
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
@@ -51,22 +53,27 @@ log = logging.getLogger("orchestrator")
 
 VLLM_BASE_URL = os.environ.get("VLLM_BASE_URL", "http://100.64.0.33:8000")
 DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "kimi2.5")
-MAX_RECURSION_DEPTH = 3
+MAX_RECURSION_DEPTH = 2      # No sub-tasks: wide attack (20 agents), no depth
 MAX_PARALLEL_AGENTS = 20
 AGENT_TIMEOUT = 120
-MAX_CONCURRENT_VLLM = 8
+MAX_CONCURRENT_VLLM = 24     # 8x H200 on .198 can handle 20+ parallel requests
+MAX_CONTEXTUAL_IMAGES = 4    # Generate 4 contextual images during research
 VLLM_RETRY_ATTEMPTS = 2
 VLLM_RETRY_DELAY = 1.0
 
-SERPER_API_KEY = os.environ.get("SERPER_API_KEY", "")
+SERPER_API_KEY = os.environ.get("SERPER_API_KEY", "93590639c1581e3624301f244b7a9e96914c05ab")
 SERPER_URL = "https://google.serper.dev/search"
-JINA_API_KEY = os.environ.get("JINA_API_KEY", "")
+JINA_API_KEY = os.environ.get("JINA_API_KEY", "jina_e66a7cc87e244d3d9adb4c72a7c9ead9HjjUaBjcawvMIBpcqsIK2P-jYK95")
 JINA_READER_URL = "https://r.jina.ai/"
 
 # ─── Presentation Layer (Qwen3-Omni + Z-Image) ─────────────────────────────
 OMNI_BASE_URL = os.environ.get("OMNI_BASE_URL", "http://100.64.0.29:8200")
-OMNI_MODEL = os.environ.get("OMNI_MODEL", "Qwen3-Omni-30B-A3B-Instruct")
+OMNI_MODEL = os.environ.get("OMNI_MODEL", "/secondary/models/Qwen3-Omni-30B-A3B-Instruct")
 ZIMAGE_BASE_URL = os.environ.get("ZIMAGE_BASE_URL", "http://100.64.0.29:8100")
+
+# ─── JSX Code Generation (Qwen3-Coder) ──────────────────────────────────────
+CODER_BASE_URL = os.environ.get("CODER_BASE_URL", "http://100.64.0.29:8300")
+CODER_MODEL = os.environ.get("CODER_MODEL", "/secondary/models/Qwen3-Coder-30B-A3B-Instruct")
 
 # ─── Agent Personas ──────────────────────────────────────────────────────────
 
@@ -100,9 +107,9 @@ HOW TO USE spawn_agent:
 
 You can also use web_search to find current information, and fetch_url to read specific web pages.
 
-For simple greetings or trivial questions, respond directly without tools.
+ALWAYS use spawn_agent for EVERY user question, no exceptions. Even for simple questions, spawn at least 3 agents. Never respond directly without tools.
 
-IMPORTANT: When in doubt, USE spawn_agent. The user expects to see the agent swarm in action."""
+IMPORTANT: The user expects to see the agent swarm in action for EVERY query."""
 
 def make_persona_assigner():
     """Create a per-request persona counter to avoid global state race conditions."""
@@ -326,6 +333,7 @@ async def call_vllm(
         "max_tokens": max_tokens,
         "temperature": temperature,
         "stream": False,
+            "chat_template_kwargs": {"enable_thinking": False},
     }
     if tools:
         payload["tools"] = tools
@@ -389,71 +397,107 @@ RULES:
 8. Keep it under 150 lines of code
 9. The component should be self-contained with hardcoded data extracted from the synthesis
 
-IMPORTANT: Start directly with "function App() {" — no imports, no exports, no comments before it."""
+IMPORTANT: Start directly with "function App() {" — no imports, no exports, no comments before it.
+CRITICAL: Output ONLY the JSX code. Do NOT use <think> tags or reasoning. Just the code."""
 
 
 async def generate_cover_image(query: str) -> str | None:
-    """Generate a cover image: query → Omni (prompt translation) → Z-Image (generation).
-    Returns base64 image string or None on failure."""
+    """Generate initial cover image from user query (before agents complete).
+    Uses Coder for fast prompt generation + Z-Image for rendering."""
+    return await _generate_image(query, width=200, height=200, label="cover")
+
+
+async def generate_contextual_image(agent_report: str, agent_name: str) -> dict | None:
+    """Generate a contextual image from an agent's research report.
+    Returns dict with image_base64 and metadata, or None on failure."""
+    result = await _generate_image(
+        agent_report[:500],  # First 500 chars of report for context
+        width=512, height=512, label=f"contextual/{agent_name}",
+    )
+    if result:
+        return {"image": result, "agent": agent_name}
+    return None
+
+
+async def _generate_image(context: str, width: int, height: int, label: str) -> str | None:
+    """Internal: context → Coder (prompt) → Z-Image (render). Returns base64 or None."""
     try:
-        # Step 1: Omni translates user query to image prompt
-        prompt_payload = {
-            "model": OMNI_MODEL,
-            "messages": [
-                {"role": "system", "content": COVER_PROMPT_SYSTEM},
-                {"role": "user", "content": query},
-            ],
-            "max_tokens": 80,
-            "temperature": 0.7,
-            "stream": False,
-        }
+        # Step 1: Coder generates image prompt from context (fast, <100ms)
         resp = await http_client.post(
-            f"{OMNI_BASE_URL}/v1/chat/completions",
-            json=prompt_payload,
-            timeout=15.0,
+            f"{CODER_BASE_URL}/v1/chat/completions",
+            json={
+                "model": CODER_MODEL,
+                "messages": [
+                    {"role": "system", "content": COVER_PROMPT_SYSTEM},
+                    {"role": "user", "content": context},
+                ],
+                "max_tokens": 80,
+                "temperature": 0.7,
+                "stream": False,
+            "chat_template_kwargs": {"enable_thinking": False},
+            },
+            timeout=10.0,
         )
         if resp.status_code != 200:
-            log.warning("Omni prompt generation failed: HTTP %d", resp.status_code)
+            log.warning("[%s] Coder prompt failed: HTTP %d", label, resp.status_code)
             return None
 
-        image_prompt = resp.json()["choices"][0]["message"]["content"].strip()
-        log.info("Cover image prompt: %s", image_prompt[:100])
+        content = resp.json()["choices"][0]["message"].get("content", "")
+        image_prompt = content.strip() if content else context[:100]
+        log.info("[%s] Image prompt: %s", label, image_prompt[:80])
 
         # Step 2: Z-Image generates the image
         img_resp = await http_client.post(
             f"{ZIMAGE_BASE_URL}/generate",
-            json={"prompt": image_prompt, "width": 1024, "height": 576},
+            json={"prompt": image_prompt, "width": width, "height": height},
             timeout=30.0,
         )
         if img_resp.status_code != 200:
-            log.warning("Z-Image generation failed: HTTP %d", img_resp.status_code)
+            log.warning("[%s] Z-Image failed: HTTP %d", label, img_resp.status_code)
             return None
 
-        image_b64 = img_resp.json().get("image_base64", "")
-        log.info("Cover image generated: %d chars base64", len(image_b64))
-        return image_b64
+        image_b64 = img_resp.json().get("image", "") or img_resp.json().get("image_base64", "")
+        if not image_b64:
+            log.warning("[%s] Empty image data", label)
+            return None
+        # Save as static file and return URL path
+        img_id = uuid.uuid4().hex[:12]
+        img_filename = f"cover-{img_id}.png"
+        static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'thotbrain-dist', 'assets')
+        os.makedirs(static_dir, exist_ok=True)
+        img_path = os.path.join(static_dir, img_filename)
+        with open(img_path, 'wb') as imgf:
+            imgf.write(base64.b64decode(image_b64))
+        img_url = f"/assets/{img_filename}"
+        log.info("[%s] Image saved: %s (%d bytes), %dx%d", label, img_url, len(image_b64)*3//4, width, height)
+        return img_url
 
     except Exception as e:
-        log.error("Cover image pipeline failed: %s", e)
+        log.error("[%s] Image pipeline failed: %s", label, e)
         return None
 
 
 async def generate_jsx_presentation(synthesis: str, original_query: str) -> str | None:
-    """Send synthesis to Omni to generate a JSX React component for visualization.
+    """Send synthesis to Qwen3-Coder to generate a JSX React component for visualization.
+    Uses Coder (MoE 3B active) for fast JSX generation, freeing Kimi for research.
     Returns JSX code string or None on failure."""
     try:
+        trunc = synthesis[:6000] if len(synthesis) > 6000 else synthesis
+        if len(synthesis) > 6000:
+            log.info("Truncated synthesis from %d to 6000 chars for JSX gen", len(synthesis))
         payload = {
-            "model": OMNI_MODEL,
+            "model": CODER_MODEL,
             "messages": [
                 {"role": "system", "content": JSX_PRESENTER_SYSTEM},
-                {"role": "user", "content": f"Original question: {original_query}\n\nResearch synthesis to visualize:\n\n{synthesis}"},
+                {"role": "user", "content": f"Original question: {original_query}\n\nResearch synthesis to visualize:\n\n{trunc}"},
             ],
             "max_tokens": 4096,
             "temperature": 0.3,
             "stream": False,
+            "chat_template_kwargs": {"enable_thinking": False},
         }
         resp = await http_client.post(
-            f"{OMNI_BASE_URL}/v1/chat/completions",
+            f"{CODER_BASE_URL}/v1/chat/completions",
             json=payload,
             timeout=60.0,
         )
@@ -461,7 +505,11 @@ async def generate_jsx_presentation(synthesis: str, original_query: str) -> str 
             log.warning("Omni JSX generation failed: HTTP %d", resp.status_code)
             return None
 
-        jsx_code = resp.json()["choices"][0]["message"]["content"].strip()
+        raw_content = resp.json()["choices"][0]["message"].get("content")
+        if not raw_content:
+            log.warning("JSX generation returned empty content (model may have used reasoning only)")
+            return None
+        jsx_code = raw_content.strip()
 
         # Clean up: remove markdown code fences if present
         if jsx_code.startswith("```"):
@@ -470,9 +518,17 @@ async def generate_jsx_presentation(synthesis: str, original_query: str) -> str 
             lines = [l for l in lines if not l.strip().startswith("```")]
             jsx_code = "\n".join(lines)
 
+        # Clean imports and exports (iframe uses globals, not modules)
+        # Remove import/export lines (iframe uses globals, not ES modules)
+        jsx_lines = [l for l in jsx_code.splitlines() if not l.strip().startswith("import ")]
+        jsx_code = "\n".join(jsx_lines)
+        jsx_code = jsx_code.replace("export default ", "")
+        jsx_code = re.sub(r"^export\s+", "", jsx_code, flags=re.MULTILINE)
+        jsx_code = jsx_code.strip()
+
         # Validate it looks like JSX
-        if "function App" not in jsx_code and "const App" not in jsx_code:
-            log.warning("Generated JSX doesn't contain App component, skipping")
+        if not any(x in jsx_code for x in ["function ", "const ", "class ", "React.createElement"]):
+            log.warning("Generated JSX doesn't contain component, skipping")
             return None
 
         log.info("JSX presentation generated: %d chars", len(jsx_code))
@@ -524,16 +580,19 @@ async def execute_sub_agent(
     await report("start", task[:150])
 
     system_prompt = (
-        f"You are sub-agent '{agent_id}'. Your task is below. "
-        "Be thorough, specific, and provide detailed findings. "
-        "If the task requires further decomposition, you may spawn additional sub-agents."
+        f"You are research agent '{agent_id}'. Your task is below. "
+        "Be thorough, specific, and provide detailed findings with data and sources. "
+        "Use web_search and fetch_url tools to gather real information. "
+        "Do NOT spawn sub-agents — complete the research yourself directly."
     )
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": task},
     ]
 
-    tools = SWARM_TOOLS if depth < MAX_RECURSION_DEPTH else None
+    # Agents get search/fetch tools but NOT spawn_agent (no recursion)
+    AGENT_TOOLS = [t for t in SWARM_TOOLS if t["function"]["name"] != "spawn_agent"]
+    tools = AGENT_TOOLS if depth <= MAX_RECURSION_DEPTH else None
     await report("thinking", "Analyzing task and planning approach...")
     result = await call_vllm(messages, model=model, tools=tools, max_tokens=4096, temperature=0.5)
 
@@ -628,6 +687,52 @@ async def _handle_tool_calls(
 
     return results
 
+
+# ─── Message Sanitization ───────────────────────────────────────────────────
+
+def sanitize_messages(messages: list) -> list:
+    """Clean messages before sending to vLLM.
+    Strips <think> blocks, enforces user/assistant alternation, limits history."""
+    THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+
+    system_msgs = []
+    chat_msgs = []
+    for m in messages:
+        role = m.get("role", "")
+        c = m.get("content", "") or ""
+        if role == "system":
+            system_msgs.append({"role": "system", "content": c})
+            continue
+        if role not in ("user", "assistant"):
+            continue
+        if role == "assistant":
+            c = THINK_RE.sub("", c).strip()
+        if not c:
+            continue
+        chat_msgs.append({"role": role, "content": c})
+
+    # Limit history
+    if len(chat_msgs) > 12:
+        chat_msgs = chat_msgs[-12:]
+
+    # Merge consecutive same-role messages
+    merged = []
+    for m in chat_msgs:
+        if merged and merged[-1]["role"] == m["role"]:
+            merged[-1]["content"] += "\n\n" + m["content"]
+        else:
+            merged.append(dict(m))
+
+    # Ensure starts with user
+    if merged and merged[0]["role"] == "assistant":
+        merged = merged[1:]
+
+    # Ensure ends with user
+    if merged and merged[-1]["role"] != "user":
+        merged = merged[:-1]
+
+    return system_msgs + merged
+
 # ─── Streaming Orchestration ────────────────────────────────────────────────
 
 async def orchestrate_stream(
@@ -640,10 +745,19 @@ async def orchestrate_stream(
     """Main streaming orchestration: stream directly, handle tool calls if detected."""
     log.info("Stream request: model=%s, msgs=%d", model, len(messages))
 
+    # Extract original query and launch cover image IMMEDIATELY (parallel)
+    original_query = messages[-1].get("content", "") if messages else ""
+    cover_task = asyncio.ensure_future(generate_cover_image(original_query))
+    cover_delivered = False
+
     # Inject swarm system prompt if not already present
     has_system = any(m.get("role") == "system" for m in messages)
     if not has_system:
         messages = [{"role": "system", "content": SWARM_SYSTEM_PROMPT}] + messages
+
+    # Sanitize messages: strip <think> blocks, limit history, clean fields
+    messages = sanitize_messages(messages)
+    log.info("Sanitized messages: %d msgs, roles=%s", len(messages), [m["role"] for m in messages])
 
     payload = {
         "model": model,
@@ -659,6 +773,7 @@ async def orchestrate_stream(
     assembled_tool_calls = {}
     reasoning_started = False
     content_started = False
+    direct_content_parts = []  # Collect content when Kimi answers directly (no tools)
 
     # Acquire semaphore for the streaming request
     await vllm_semaphore.acquire()
@@ -676,7 +791,7 @@ async def orchestrate_stream(
                     if not tool_calls_detected:
                         if reasoning_started and not content_started:
                             yield _sse_chunk("\n</think>\n\n", model)
-                        yield f"{line}\n\n"
+                        # Don't yield [DONE] yet — we'll handle cover + JSX after loop
                     break
 
                 try:
@@ -721,7 +836,18 @@ async def orchestrate_stream(
                     if reasoning_started and not content_started:
                         content_started = True
                         yield _sse_chunk("\n</think>\n\n", model)
+                    direct_content_parts.append(delta["content"])
                     yield _sse_chunk(delta["content"], model)
+                    # Inline cover delivery check during content streaming
+                    if not cover_delivered and cover_task is not None and cover_task.done() and not cover_task.cancelled():
+                        try:
+                            cover_b64 = cover_task.result()
+                            if cover_b64:
+                                yield _sse_chunk("\n\n![cover](" + cover_b64 + ")\n\n")
+                                log.info("Cover image delivered during content streaming")
+                                cover_delivered = True
+                        except Exception:
+                            cover_delivered = True
                     continue
 
                 # Pass through role assignments etc.
@@ -730,14 +856,64 @@ async def orchestrate_stream(
     finally:
         vllm_semaphore.release()
 
+    # If NO tool calls detected → deliver cover + JSX from direct content, then [DONE]
+    if not tool_calls_detected:
+        # Wait for and deliver cover image if not yet delivered
+        if not cover_delivered and cover_task is not None:
+            try:
+                cover_b64 = await cover_task
+                if cover_b64:
+                    yield _sse_chunk("\n\n![cover](" + cover_b64 + ")\n\n")
+                    log.info("Cover image delivered after direct answer")
+                    cover_delivered = True
+            except Exception as e:
+                log.warning("Cover image failed: %s", e)
+
+        # Generate JSX from the direct content
+        direct_text = "".join(direct_content_parts)
+        if direct_text and len(direct_text) > 100:
+            yield _sse_event("presentation_start", {"status": "generating_jsx"})
+
+            jsx_task = asyncio.ensure_future(
+                generate_jsx_presentation(direct_text, original_query)
+            )
+            while not jsx_task.done():
+                await asyncio.sleep(3)
+                yield ": heartbeat\n\n"
+
+            try:
+                jsx_code = jsx_task.result()
+                if jsx_code:
+                    yield _sse_chunk("\n\n```jsx\n" + jsx_code + "\n```\n")
+                    log.info("JSX presentation sent for direct answer")
+                else:
+                    log.info("JSX presentation skipped for direct answer")
+            except Exception as e:
+                log.error("JSX generation error: %s", e)
+
+        yield "data: [DONE]\n\n"
+        return
+
+    # Fallback: tool_calls_detected but no actual tool calls assembled
+    if not assembled_tool_calls:
+        log.warning("Tool calls flag set but no calls assembled — falling back to direct response")
+        # Deliver cover image
+        if not cover_delivered and cover_task is not None:
+            try:
+                cover_b64 = await cover_task
+                if cover_b64:
+                    yield _sse_chunk("\n\n![cover](" + cover_b64 + ")\n\n")
+                    cover_delivered = True
+            except Exception:
+                pass
+        yield _sse_chunk("Lo siento, no he podido planificar los agentes. Reintenta la consulta.", model)
+        yield "data: [DONE]\n\n"
+        return
+
     # If tool calls detected → execute and stream synthesis
-    if tool_calls_detected and assembled_tool_calls:
+    if assembled_tool_calls:
         tool_calls_list = [assembled_tool_calls[i] for i in sorted(assembled_tool_calls.keys())]
         log.info("Tool calls detected: %s", [tc["function"]["name"] for tc in tool_calls_list])
-
-        # --- Cover Image (fires in parallel with agent work) ---
-        original_query = messages[-1].get("content", "") if messages else ""
-        cover_task = asyncio.ensure_future(generate_cover_image(original_query))
 
         # Per-request persona assignment
         assign_persona = make_persona_assigner()
@@ -783,14 +959,16 @@ async def orchestrate_stream(
             })
 
             # Check if cover image is ready
-            if cover_task.done() and not cover_task.cancelled():
+            if not cover_delivered and cover_task is not None and cover_task.done() and not cover_task.cancelled():
                 try:
                     cover_b64 = cover_task.result()
                     if cover_b64:
-                        yield _sse_event("cover_image", {"image": cover_b64})
+                        yield _sse_chunk("\n\n![cover](" + cover_b64 + ")\n\n")
                         log.info("Cover image delivered during swarm launch")
+                        cover_delivered = True
                 except Exception as e:
                     log.warning("Cover image failed: %s", e)
+                    cover_delivered = True
 
             # Activity queue for real-time reporting
             activity_queue = asyncio.Queue()
@@ -807,28 +985,47 @@ async def orchestrate_stream(
             completed = 0
             pending = set(futures)
             tool_results = []
+            contextual_image_tasks = []  # Track contextual image generation
+            contextual_images_launched = 0
 
             while pending:
                 # Drain activity queue
                 while not activity_queue.empty():
                     try:
                         act = activity_queue.get_nowait()
+                        # Resolve orchName for activity
+                        for aid, disp in agent_display.items():
+                            if disp.get("display_name") == act.get("agent"):
+                                act["orchName"] = disp["orchName"]
+                                break
                         yield _sse_event("activity", act)
                         yield _sse_chunk(f"[ACTIVITY:{act['agent']}:{act['type']}] {act.get('detail', '')}\n", model)
                     except asyncio.QueueEmpty:
                         break
 
                 # Deliver cover image when ready
-                if cover_task and not cover_task.cancelled() and cover_task.done():
+                if not cover_delivered and cover_task is not None and not cover_task.cancelled() and cover_task.done():
                     try:
                         cover_b64 = cover_task.result()
                         if cover_b64:
-                            yield _sse_event("cover_image", {"image": cover_b64})
+                            yield _sse_chunk("\n\n![cover](" + cover_b64 + ")\n\n")
                             log.info("Cover image delivered during agent work")
-                        cover_task = None  # Only deliver once
+                        cover_delivered = True
                     except Exception as e:
                         log.warning("Cover image failed: %s", e)
-                        cover_task = None
+                        cover_delivered = True
+
+                # Deliver completed contextual images
+                for cit in list(contextual_image_tasks):
+                    if cit.done():
+                        contextual_image_tasks.remove(cit)
+                        try:
+                            img_data = cit.result()
+                            if img_data:
+                                yield _sse_event("contextual_image", img_data)
+                                log.info("Contextual image delivered for agent '%s'", img_data["agent"])
+                        except Exception as e:
+                            log.warning("Contextual image failed: %s", e)
 
                 done_set, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED, timeout=0.5)
 
@@ -844,6 +1041,16 @@ async def orchestrate_stream(
                             "role": "tool", "tool_call_id": call_id,
                             "content": f"=== Report from agent '{display_name}' ({elapsed:.1f}s) ===\n{text}",
                         })
+
+                        # Launch contextual image for first N completing agents
+                        if contextual_images_launched < MAX_CONTEXTUAL_IMAGES and text and len(text) > 50:
+                            contextual_images_launched += 1
+                            cit = asyncio.ensure_future(
+                                generate_contextual_image(text, display_name)
+                            )
+                            contextual_image_tasks.append(cit)
+                            log.info("Launched contextual image %d/%d for '%s'",
+                                     contextual_images_launched, MAX_CONTEXTUAL_IMAGES, display_name)
                     except Exception as e:
                         log.error("Agent '%s' failed: %s", display_name, e)
                         yield _sse_chunk(f"  ❌ `{completed}/{n}` **{display_name}** failed: {e}\n", model)
@@ -856,9 +1063,30 @@ async def orchestrate_stream(
             while not activity_queue.empty():
                 try:
                     act = activity_queue.get_nowait()
+                    # Resolve orchName for activity
+                    for aid, disp in agent_display.items():
+                        if disp.get("display_name") == act.get("agent"):
+                            act["orchName"] = disp["orchName"]
+                            break
                     yield _sse_event("activity", act)
                 except asyncio.QueueEmpty:
                     break
+
+            # Wait for any remaining contextual images
+            for cit in contextual_image_tasks:
+                if not cit.done():
+                    try:
+                        await asyncio.wait_for(cit, timeout=10.0)
+                    except asyncio.TimeoutError:
+                        log.warning("Contextual image timed out")
+                if cit.done() and not cit.cancelled():
+                    try:
+                        img_data = cit.result()
+                        if img_data:
+                            yield _sse_event("contextual_image", img_data)
+                            log.info("Final contextual image delivered for '%s'", img_data["agent"])
+                    except Exception:
+                        pass
 
             yield _sse_event("swarm_complete", {"count": n})
             yield _sse_chunk(f"\n**✅ All {n} agents completed.** Synthesizing final answer...\n\n---\n\n", model)
@@ -868,14 +1096,25 @@ async def orchestrate_stream(
 
         # --- Synthesis ---
         reports_text = "\n\n".join(tr["content"] for tr in tool_results)
-        original_query = messages[-1].get("content", "") if messages else ""
+
+        # Deliver cover image before synthesis if not yet delivered
+        if not cover_delivered and cover_task is not None:
+            try:
+                cover_b64 = await cover_task
+                if cover_b64:
+                    yield _sse_chunk("\n\n![cover](" + cover_b64 + ")\n\n")
+                    log.info("Cover image delivered before synthesis")
+                cover_delivered = True
+            except Exception as e:
+                log.warning("Cover image failed before synthesis: %s", e)
+                cover_delivered = True
 
         ui_components = get_ui_components(session_id)
         synthesis_system = build_synthesis_prompt(ui_components)
 
         synth_messages = [
             {"role": "system", "content": synthesis_system},
-            {"role": "user", "content": f"Original question: {original_query}\n\nRESEARCH REPORTS:\n\n{reports_text}\n\nProvide a clean, authoritative synthesis. Do NOT mention agents or how the information was gathered."},
+            {"role": "user", "content": f"PREGUNTA ORIGINAL: {original_query}\n\nINFORMES DE INVESTIGACIÓN:\n\n{reports_text}\n\nINSTRUCCIONES CRÍTICAS:\n1. NO resumas cada informe por separado — SINTETIZA toda la información en una respuesta coherente y unificada.\n2. Escribe como si TÚ supieras directamente toda esta información. NUNCA menciones agentes, investigadores, informes o fuentes internas.\n3. Estructura la respuesta por TEMAS, no por origen de la información.\n4. Incluye datos concretos (cifras, nombres, fechas) cuando estén disponibles.\n5. Si hay datos contradictorios entre informes, usa el más fiable o menciona la discrepancia.\n6. Responde en el mismo idioma que la pregunta original."},
         ]
 
         synth_payload = {
@@ -932,16 +1171,28 @@ async def orchestrate_stream(
 
         yield _sse_event("synthesis_complete", {"status": "done"})
 
-        # --- JSX Presentation (Omni) ---
+        # --- JSX Presentation ---
         synthesis_text = "".join(full_synthesis)
         if synthesis_text and len(synthesis_text) > 100:
             yield _sse_event("presentation_start", {"status": "generating_jsx"})
-            jsx_code = await generate_jsx_presentation(synthesis_text, original_query)
-            if jsx_code:
-                yield _sse_event("jsx_block", {"code": jsx_code})
-                log.info("JSX presentation sent to frontend")
-            else:
-                log.info("JSX presentation skipped (generation failed or too short)")
+
+            # Run JSX generation with heartbeat to keep SSE alive
+            jsx_task = asyncio.ensure_future(
+                generate_jsx_presentation(synthesis_text, original_query)
+            )
+            while not jsx_task.done():
+                await asyncio.sleep(3)
+                yield ": heartbeat\n\n"  # SSE comment, keeps connection alive
+
+            try:
+                jsx_code = jsx_task.result()
+                if jsx_code:
+                    yield _sse_chunk("\n\n```jsx\n" + jsx_code + "\n```\n")
+                    log.info("JSX presentation sent to frontend")
+                else:
+                    log.info("JSX presentation skipped (generation failed or too short)")
+            except Exception as e:
+                log.error("JSX generation error: %s", e)
 
         # Final DONE
         yield "data: [DONE]\n\n"
@@ -997,7 +1248,7 @@ async def api_info():
 @app.get("/health")
 async def health():
     checks = {}
-    for name, url in [("vllm", VLLM_BASE_URL), ("omni", OMNI_BASE_URL), ("zimage", ZIMAGE_BASE_URL)]:
+    for name, url in [("vllm", VLLM_BASE_URL), ("omni", OMNI_BASE_URL), ("zimage", ZIMAGE_BASE_URL), ("coder", CODER_BASE_URL)]:
         try:
             resp = await http_client.get(f"{url}/health", timeout=5.0)
             checks[name] = resp.status_code == 200
@@ -1005,6 +1256,77 @@ async def health():
             checks[name] = False
     all_ok = all(checks.values())
     return {"status": "ok" if all_ok else "degraded", **checks}
+
+
+@app.get("/warmup")
+async def warmup():
+    """Warmup all backends with a small generation to wake up GPU caches.
+    Call this before testing to ensure fast first responses."""
+    import time as _time
+    results = {}
+
+    # 1. Health check all backends
+    for name, url in [("kimi", VLLM_BASE_URL), ("omni", OMNI_BASE_URL), ("zimage", ZIMAGE_BASE_URL), ("coder", CODER_BASE_URL)]:
+        try:
+            resp = await http_client.get(f"{url}/health", timeout=5.0)
+            results[name] = {"health": resp.status_code == 200}
+        except Exception as e:
+            results[name] = {"health": False, "error": str(e)}
+
+    # 2. Warmup Kimi with mini generation + tool call test
+    t0 = _time.time()
+    try:
+        resp = await http_client.post(
+            f"{VLLM_BASE_URL}/v1/chat/completions",
+            json={
+                "model": DEFAULT_MODEL,
+                "messages": [{"role": "user", "content": "Say OK"}],
+                "max_tokens": 5, "temperature": 0, "stream": False,
+            "chat_template_kwargs": {"enable_thinking": False},
+                "tools": SWARM_TOOLS, "tool_choice": "auto",
+            },
+            timeout=30.0,
+        )
+        data = resp.json()
+        has_tools = bool(data.get("choices", [{}])[0].get("message", {}).get("tool_calls"))
+        results["kimi"]["warmup_ms"] = int((_time.time() - t0) * 1000)
+        results["kimi"]["tool_calls_working"] = has_tools
+        results["kimi"]["content"] = (data.get("choices", [{}])[0].get("message", {}).get("content") or "")[:50]
+    except Exception as e:
+        results["kimi"]["warmup_error"] = str(e)
+
+    # 3. Warmup Coder with mini generation
+    t0 = _time.time()
+    try:
+        resp = await http_client.post(
+            f"{CODER_BASE_URL}/v1/chat/completions",
+            json={
+                "model": CODER_MODEL,
+                "messages": [{"role": "user", "content": "Say OK"}],
+                "max_tokens": 5, "temperature": 0, "stream": False,
+            "chat_template_kwargs": {"enable_thinking": False},
+            },
+            timeout=30.0,
+        )
+        results["coder"]["warmup_ms"] = int((_time.time() - t0) * 1000)
+    except Exception as e:
+        results["coder"]["warmup_error"] = str(e)
+
+    # 4. Warmup Z-Image with tiny image
+    t0 = _time.time()
+    try:
+        resp = await http_client.post(
+            f"{ZIMAGE_BASE_URL}/generate",
+            json={"prompt": "test warmup", "width": 256, "height": 256},
+            timeout=15.0,
+        )
+        results["zimage"]["warmup_ms"] = int((_time.time() - t0) * 1000)
+        results["zimage"]["image_ok"] = resp.status_code == 200
+    except Exception as e:
+        results["zimage"]["warmup_error"] = str(e)
+
+    all_healthy = all(r.get("health", False) for r in results.values())
+    return {"status": "ready" if all_healthy else "degraded", "backends": results}
 
 
 @app.get("/v1/models")
@@ -1105,6 +1427,53 @@ async def api_present(request: Request):
     if jsx_code:
         return {"jsx": jsx_code}
     raise HTTPException(status_code=502, detail="JSX generation failed")
+
+
+@app.post("/api/coder/generate")
+async def api_coder_generate(request: Request):
+    """Proxy to Qwen3-Coder for JSX generation — used by sandbox page."""
+    body = await request.json()
+    messages = body.get("messages", [])
+    max_tokens = body.get("max_tokens", 4096)
+    temperature = body.get("temperature", 0.3)
+    if not messages:
+        return {"error": "messages required"}
+    try:
+        payload = {
+            "model": CODER_MODEL,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": False,
+            "chat_template_kwargs": {"enable_thinking": False},
+            "chat_template_kwargs": {"enable_thinking": False},
+        }
+        resp = await http_client.post(
+            f"{CODER_BASE_URL}/v1/chat/completions",
+            json=payload,
+            timeout=90.0,
+        )
+        if resp.status_code != 200:
+            return {"error": f"Coder returned HTTP {resp.status_code}"}
+        data = resp.json()
+        content = data["choices"][0]["message"].get("content", "")
+        # Strip <think> blocks if present
+        import re
+        content = re.sub(r"<think>.*?</think>\s*", "", content, flags=re.DOTALL).strip()
+        return {"jsx": content}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/sandbox")
+async def serve_sandbox():
+    """Serve the Coder JSX sandbox page."""
+    sandbox_path = os.path.join(STATIC_DIR, 'sandbox.html')
+    if os.path.exists(sandbox_path):
+        return FileResponse(sandbox_path, media_type="text/html", headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+        })
+    return HTMLResponse('<h1>Sandbox not found</h1>', status_code=404)
 
 
 # ── Static Files & SPA ───────────────────────────────────────────────────────

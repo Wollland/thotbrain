@@ -104,7 +104,7 @@ function parseControlChunk(chunk: string, callbacks: StreamCallbacks, reportBuff
   if (swarmMatch) {
     const count = parseInt(swarmMatch[1]);
     const agents: Array<{ name: string; task: string }> = [];
-    const launchRe = /`(\d+)\/(\d+)`\s+\*\*(\w+)\*\*\s*[—\-]\s*([^\n]+)/g;
+    const launchRe = /`(\d+)\/(\d+)`\s+\*\*([^*]+?)\*\*\s*[—\-]\s*([^\n]+)/g;
     let lm;
     while ((lm = launchRe.exec(chunk)) !== null) {
       agents.push({ name: lm[3], task: lm[4].trim() });
@@ -119,7 +119,7 @@ function parseControlChunk(chunk: string, callbacks: StreamCallbacks, reportBuff
   }
 
   // ── ✅ `n/N` **AgentName** completed (Xs) ──
-  const doneMatch = chunk.match(/[✅❌]\s*`\d+\/\d+`\s+\*\*(\w+)\*\*\s+(completed|failed)\s*\(([0-9.]+)s\)/);
+  const doneMatch = chunk.match(/[✅❌]\s*`\d+\/\d+`\s+\*\*([^*]+?)\*\*\s+(completed|failed)\s*\(([0-9.]+)s\)/);
   if (doneMatch) {
     const act = {
       agent: doneMatch[1],
@@ -245,9 +245,10 @@ export function streamChat(
               callbacks.onSwarmComplete?.(parsed.count || 0);
               return;
             case 'agent_done':
-              callbacks.onActivity?.({ agent: parsed.agent, type: 'done', detail: `${parsed.elapsed?.toFixed(1)}s`, timestamp: Date.now() });
+              callbacks.onActivity?.({ agent: parsed.orchName || parsed.agent, type: 'done', detail: `${parsed.elapsed?.toFixed(1)}s`, timestamp: Date.now() });
               return;
             case 'activity':
+              if (parsed.orchName) parsed.agent = parsed.orchName;
               callbacks.onActivity?.(parsed as AgentActivity);
               return;
           }
