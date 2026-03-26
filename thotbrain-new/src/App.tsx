@@ -5,10 +5,11 @@ import {
   Paperclip, X, FileText, ChevronDown, Mic, MicOff,
   Trash2, Play, Code, ChevronUp,
   Database, Mail, Activity, Layers, Terminal, Plug,
+  Video, Volume2, VolumeX,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { streamChat, checkHealth, stripControlText } from './lib/api';
+import { streamChat, checkHealth, stripControlText, transcribeAudio, synthesizeSpeech, generateVideoClip, checkVideoStatus, startVideoBatch, stopVideoBatch, updateVideoPrompts, getLatestClip } from './lib/api';
 import type { ChatMsg, AgentActivity, AgentReport } from './lib/api';
 import { SwarmActivityPanel } from './components/SwarmActivityPanel';
 import { MCPConnectorsModal } from './components/MCPConnectorsModal';
@@ -19,9 +20,9 @@ const SESSIONS_KEY = 'thotbrain_sessions';
 const ACTIVE_KEY = 'thotbrain_active';
 
 const MODELS = [
-  { id: 'kimi2.5', name: 'Kimi K2.5', desc: '8\u00d7H200 NVL \u00b7 32K ctx', active: true },
-  { id: 'qwen3-235b', name: 'Qwen3 235B', desc: 'MoE \u00b7 Pr\u00f3ximamente', active: false },
-  { id: 'deepseek-r1', name: 'DeepSeek R1', desc: '671B \u00b7 Pr\u00f3ximamente', active: false },
+  { id: 'kimi2.5', name: 'Kimi K2.5', desc: '8×H200 NVL · 32K ctx', active: true },
+  { id: 'qwen3-235b', name: 'Qwen3 235B', desc: 'MoE · Próximamente', active: false },
+  { id: 'deepseek-r1', name: 'DeepSeek R1', desc: '671B · Próximamente', active: false },
 ];
 
 // ─── Types ───
@@ -59,7 +60,7 @@ function saveSession(id: string, messages: Message[]) {
   const sessions = loadSessions();
   const idx = sessions.findIndex(s => s.id === id);
   const first = messages.find(m => m.role === 'user');
-  const title = first ? first.content.slice(0, 60) + (first.content.length > 60 ? '\u2026' : '') : 'Nueva sesi\u00f3n';
+  const title = first ? first.content.slice(0, 60) + (first.content.length > 60 ? '…' : '') : 'Nueva sesión';
   const session: SavedSession = {
     id, title,
     messages: messages.map(m => ({ id: m.id, role: m.role, content: m.content, thinking: m.thinking, timestamp: m.timestamp.toISOString() })),
@@ -86,7 +87,7 @@ function fastMd(rawText: string): string {
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/`([^`\n]+)`/g, '<code class="inline-code">$1</code>')
-    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width:100%;border-radius:8px;margin:8px 0" />')
+    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" class="research-img" loading="lazy" />')
     .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
     .replace(/^[-*] (.+)$/gm, '<li>$1</li>')
     .replace(/^\d+\.\s(.+)$/gm, '<li>$1</li>')
@@ -143,7 +144,7 @@ function ReactSandbox({ code }: { code: string }) {
     <div className="my-3 border border-zinc-200 rounded-xl overflow-hidden shadow-sm">
       <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-50 border-b border-zinc-200">
         <div className="flex items-center gap-2 text-[11px] font-semibold text-zinc-500"><Code className="w-3.5 h-3.5" /><span>Visualizaci&oacute;n Interactiva</span><span className="text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold">Recharts</span></div>
-        <button onClick={() => setShow(!show)} className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold bg-black text-[#D4AF37] hover:bg-zinc-800 transition-colors">
+        <button onClick={() => setShow(!show)} className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold bg-black text-[#DA7756] hover:bg-zinc-800 transition-colors">
           {show ? <ChevronUp className="w-3 h-3" /> : <Play className="w-3 h-3" />}{show ? 'Ocultar' : 'Preview'}
         </button>
       </div>
@@ -185,8 +186,9 @@ const FullMarkdown = memo(function FullMarkdown({ content }: { content: string }
             h1: ({ children }) => <h1 className="text-base font-bold mt-3 mb-1">{children}</h1>,
             h2: ({ children }) => <h2 className="text-sm font-bold mt-2.5 mb-1">{children}</h2>,
             h3: ({ children }) => <h3 className="text-[13px] font-bold mt-2 mb-0.5">{children}</h3>,
-            a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-[#D4AF37] hover:underline">{children}</a>,
-            blockquote: ({ children }) => <blockquote className="border-l-2 border-[#D4AF37]/40 pl-3 italic text-zinc-500 my-1.5">{children}</blockquote>,
+            a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-[#DA7756] hover:underline">{children}</a>,
+            img: ({ src, alt }) => <img src={src} alt={alt || ''} className='research-img' />,
+            blockquote: ({ children }) => <blockquote className="border-l-2 border-[#DA7756]/40 pl-3 italic text-zinc-500 my-1.5">{children}</blockquote>,
             table: ({ children }) => <table className="border-collapse text-[11px] my-2 w-full">{children}</table>,
             th: ({ children }) => <th className="border border-zinc-200 px-2 py-1 bg-zinc-50 text-left font-semibold">{children}</th>,
             td: ({ children }) => <td className="border border-zinc-200 px-2 py-1">{children}</td>,
@@ -200,8 +202,8 @@ const FullMarkdown = memo(function FullMarkdown({ content }: { content: string }
 // ─── Sidebar nav items ───
 const NAV_ITEMS = [
   { icon: Database, label: 'Bases de Datos' },
-  { icon: Mail, label: 'Integraci\u00f3n Email' },
-  { icon: Activity, label: 'M\u00e9tricas en Vivo' },
+  { icon: Mail, label: 'Integración Email' },
+  { icon: Activity, label: 'Métricas en Vivo' },
   { icon: Layers, label: 'Modelos RAG' },
   { icon: Terminal, label: 'Computer Scripts' },
   { icon: Network, label: 'Agent Swarm', badge: true },
@@ -212,7 +214,7 @@ const NAV_ITEMS = [
 const welcomeMsg: Message = {
   id: 'welcome',
   role: 'assistant',
-  content: 'Hola Jorge. Soy ThotBrain. \u00bfQu\u00e9 an\u00e1lisis o tarea quieres que el enjambre de agentes realice hoy?',
+  content: 'Hola Jorge. Soy ThotBrain. ¿Qué análisis o tarea quieres que el enjambre de agentes realice hoy?',
   timestamp: new Date(),
 };
 
@@ -242,7 +244,17 @@ export default function App() {
   const [activeAgentNames, setActiveAgentNames] = useState<string[]>([]);
   const [doneAgentNames, setDoneAgentNames] = useState<string[]>([]);
 
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  // Video, TTS, ASR state
+  const [agentReports, setAgentReports] = useState<Record<string, string>>({});
+  const [isTTSEnabled, setIsTTSEnabled] = useState(false);
+  const [currentVideoUrl, setCurrentVideoUrl] = useState<string | null>(null);
+  const videoPollingRef = useRef<number | null>(null);
+  const lastClipUrlRef = useRef<string>('');
+  const [isVideoVisible, setIsVideoVisible] = useState(false);
+  const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -271,11 +283,49 @@ export default function App() {
     if (contentEl) contentEl.innerHTML = fastMd(content) + '<span class="cursor-blink"></span>';
     const thinkEl = document.getElementById(`stream-thinking-${msgId}`);
     if (thinkEl && thinking) {
-      thinkEl.textContent = thinking.slice(0, 100) + (thinking.length > 100 ? '\u2026' : '');
+      thinkEl.textContent = thinking.slice(0, 100) + (thinking.length > 100 ? '…' : '');
       thinkEl.parentElement!.style.display = '';
     }
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, []);
+
+  // TTS playback — queues sentences to read aloud
+  const ttsQueueRef = useRef<string[]>([]);
+  const ttsBusyRef = useRef(false);
+
+  const processTTSQueue = useCallback(async () => {
+    if (ttsBusyRef.current || ttsQueueRef.current.length === 0) return;
+    ttsBusyRef.current = true;
+    const sentence = ttsQueueRef.current.shift()!;
+    try {
+      const audioB64 = await synthesizeSpeech(sentence, 'serena', 'spanish');
+      if (audioB64 && ttsAudioRef.current) {
+        const raw = atob(audioB64);
+        const arr = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+        const blob = new Blob([arr], { type: 'audio/wav' });
+        ttsAudioRef.current.src = URL.createObjectURL(blob);
+        ttsAudioRef.current.volume = 0.85;
+        await ttsAudioRef.current.play().catch(() => {});
+        await new Promise<void>(resolve => {
+          ttsAudioRef.current!.onended = () => resolve();
+          setTimeout(resolve, 30000);
+        });
+      }
+    } catch {}
+    ttsBusyRef.current = false;
+    processTTSQueue();
+  }, []);
+
+  const playTTS = useCallback((text: string) => {
+    if (!isTTSEnabled) return;
+    const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+    for (const s of sentences) {
+      const clean = s.trim();
+      if (clean.length > 15) ttsQueueRef.current.push(clean);
+    }
+    processTTSQueue();
+  }, [isTTSEnabled, processTTSQueue]);
 
   // Auto-scroll when messages change or streaming ends
   useEffect(() => {
@@ -294,6 +344,7 @@ export default function App() {
     return () => clearInterval(iv);
   }, []);
 
+
   // Save session
   useEffect(() => {
     if (messages.length > 1 || messages[0]?.id !== 'welcome') {
@@ -302,25 +353,43 @@ export default function App() {
     }
   }, [messages, sessionId]);
 
-  // Voice
-  const toggleVoice = () => {
-    if (isListening) { recognitionRef.current?.stop(); setIsListening(false); return; }
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { alert('Tu navegador no soporta reconocimiento de voz.'); return; }
-    const rec = new SR();
-    rec.lang = 'es-ES'; rec.continuous = true; rec.interimResults = true;
-    let final = input;
-    rec.onresult = (e: SpeechRecognitionEvent) => {
-      let interim = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) final += e.results[i][0].transcript + ' ';
-        else interim = e.results[i][0].transcript;
-      }
-      setInput(final + (interim ? '\u200B' + interim : ''));
-    };
-    rec.onend = () => { setIsListening(false); setInput(p => p.replace(/\u200B/g, '')); };
-    rec.onerror = () => setIsListening(false);
-    recognitionRef.current = rec; rec.start(); setIsListening(true);
+  // Voice (ASR-based)
+  const toggleVoice = async () => {
+    if (isListening) {
+      // Stop recording
+      mediaRecorderRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const text = await transcribeAudio(blob);
+        if (text) {
+          // Auto-enable TTS when using voice input
+          setIsTTSEnabled(true);
+          // Set text and auto-send
+          setInput(text);
+          // Small delay to let state update, then send
+          setTimeout(() => {
+            const fakeEvent = { preventDefault: () => {} } as React.KeyboardEvent;
+            handleSend();
+          }, 100);
+        }
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setIsListening(true);
+    } catch {
+      alert('No se pudo acceder al micrófono.');
+    }
   };
 
   // Sessions
@@ -343,7 +412,7 @@ export default function App() {
 
   // Send
   const handleSend = async () => {
-    const text = input.trim().replace(/\u200B/g, '');
+    const text = input.trim().replace(/​/g, '');
     if (!text && attachedFiles.length === 0) return;
     if (isStreaming) return;
     if (isListening) { recognitionRef.current?.stop(); setIsListening(false); }
@@ -364,9 +433,20 @@ export default function App() {
     setMessages(prev => [...prev, userMsg, { id: assistantId, role: 'assistant', content: '', timestamp: new Date() }]);
     setInput('');
     setIsStreaming(true);
+    setCurrentVideoUrl(null);
+    setIsVideoVisible(false);
+    if (videoPollingRef.current) { clearInterval(videoPollingRef.current); videoPollingRef.current = null; }
     setActivities([]);
     setActiveAgentNames([]);
     setDoneAgentNames([]);
+    setAgentReports({});
+    setCurrentVideoUrl(null);
+    setIsVideoVisible(false);
+    stopVideoBatch();
+    if (videoPollingRef.current) { clearInterval(videoPollingRef.current); videoPollingRef.current = null; }
+    lastClipUrlRef.current = '';
+    ttsQueueRef.current = [];
+    ttsBusyRef.current = false;
 
     streamContentRef.current = '';
     streamThinkingRef.current = '';
@@ -392,24 +472,48 @@ export default function App() {
           setActiveAgentNames(prev => prev.includes(act.agent) ? prev : [...prev, act.agent]);
         }
       },
-      onAgentReport: (_report) => {
-        // Reports are stripped from text, but could be shown in panel
+      onAgentReport: (report) => {
+        setAgentReports(prev => ({ ...prev, [report.agent]: report.content }));
       },
-      onSwarmStart: (_count, agents) => {
+      onSwarmStart: (_count, agents, videoPrompts) => {
         setActiveAgentNames(agents.map(a => a.name));
         setDoneAgentNames([]);
         // Also emit start activities
         agents.forEach(a => {
           setActivities(prev => [...prev, { agent: a.name, type: 'start', detail: a.task, timestamp: Date.now() }]);
         });
+        // Start continuous video loop with Kimi-generated visual prompts
+        (async () => {
+          try {
+            const prompts = videoPrompts && videoPrompts.length > 0
+              ? videoPrompts
+              : agents.map(a => 'Cinematic footage related to: ' + a.task.slice(0, 80));
+            console.log('[Video] Loop prompts from Kimi:', prompts);
+            await startVideoBatch(prompts);
+            // Poll for new clips every 5 seconds
+            if (videoPollingRef.current) clearInterval(videoPollingRef.current);
+            videoPollingRef.current = window.setInterval(async () => {
+              const clip = await getLatestClip();
+              if (clip && clip.url !== lastClipUrlRef.current) {
+                lastClipUrlRef.current = clip.url;
+                setCurrentVideoUrl(clip.url);
+                // Video available but not auto-shown
+              }
+            }, 5000);
+          } catch (e) { console.warn('Video loop failed:', e); }
+        })();
       },
       onSwarmComplete: () => {
         setDoneAgentNames(prev => [...new Set([...prev, ...activeAgentNames])]);
+        // Keep video batch running - it generates clips in background
+        // Video polling continues until all clips are ready
       },
       onComplete: (fullText) => {
         setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullText || streamContentRef.current, thinking: streamThinkingRef.current || undefined } : m));
         setIsStreaming(false);
         streamMsgIdRef.current = '';
+        // TTS: read summary aloud
+        if (fullText && isTTSEnabled) { const pp = fullText.split('\n\n').filter((p: string) => p.trim().length > 20).slice(0, 2); playTTS(pp.join('. ')); }
       },
       onError: (error) => {
         setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: streamContentRef.current || `Error: ${error}` } : m));
@@ -424,14 +528,14 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen bg-[#FDFDFD] font-sans text-zinc-900 overflow-hidden selection:bg-[#D4AF37]/30 selection:text-black">
+    <div className="flex h-screen bg-[#F5F0E8] font-sans text-zinc-900 overflow-hidden selection:bg-[#DA7756]/20 selection:text-black">
       {/* ── Sidebar ── */}
-      <div className="w-[280px] bg-white border-r border-zinc-200 flex flex-col shrink-0 z-20 shadow-[5px_0_30px_rgba(0,0,0,0.02)]">
+      <div className="w-[280px] bg-[#FAF6F0] border-r border-[#E8E0D4] flex flex-col shrink-0 z-20 shadow-[5px_0_30px_rgba(0,0,0,0.02)]">
         {/* Logo */}
         <div className="p-6 border-b border-zinc-100">
           <div className="flex items-center gap-3 mb-6">
             <div className="w-10 h-10 bg-black rounded-xl flex items-center justify-center shadow-lg shadow-black/10">
-              <Sparkles className="w-5 h-5 text-[#D4AF37]" />
+              <Sparkles className="w-5 h-5 text-[#DA7756]" />
             </div>
             <div className="flex flex-col">
               <span className="font-extrabold text-lg tracking-tight leading-none text-black">ThotBrain</span>
@@ -439,8 +543,8 @@ export default function App() {
             </div>
           </div>
           <button onClick={newSession} className="w-full flex items-center justify-center gap-2 bg-black text-white px-4 py-2.5 rounded-lg hover:bg-zinc-800 transition-all active:scale-[0.98] shadow-md shadow-black/10">
-            <Plus className="w-4 h-4 text-[#D4AF37]" />
-            <span className="font-bold text-sm">Nuevo An\u00e1lisis</span>
+            <Plus className="w-4 h-4 text-[#DA7756]" />
+            <span className="font-bold text-sm">Nuevo Análisis</span>
           </button>
         </div>
 
@@ -451,13 +555,13 @@ export default function App() {
               const Icon = item.icon;
               return (
                 <button key={i} onClick={() => handleNavAction(item)}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition-colors ${item.badge ? 'bg-zinc-50 text-black' : 'hover:bg-zinc-50 text-zinc-600 hover:text-black'}`}>
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition-colors ${item.badge ? 'bg-[#F0EBE1] text-zinc-900' : 'hover:bg-[#F0EBE1] text-zinc-600 hover:text-black'}`}>
                   <div className="flex items-center gap-3">
-                    <Icon className={`w-4 h-4 ${item.badge ? 'text-[#D4AF37]' : 'text-zinc-400'}`} />
+                    <Icon className={`w-4 h-4 ${item.badge ? 'text-[#DA7756]' : 'text-zinc-400'}`} />
                     <span className="text-sm font-semibold">{item.label}</span>
                   </div>
                   {item.badge && isStreaming && (
-                    <span className="text-[9px] font-bold bg-[#D4AF37]/10 text-[#D4AF37] px-2 py-0.5 rounded-full uppercase tracking-wider border border-[#D4AF37]/20">Activo</span>
+                    <span className="text-[9px] font-bold bg-[#DA7756]/10 text-[#DA7756] px-2 py-0.5 rounded-full uppercase tracking-wider border border-[#DA7756]/20">Activo</span>
                   )}
                 </button>
               );
@@ -471,7 +575,7 @@ export default function App() {
               {sessions.map(s => (
                 <button key={s.id} onClick={() => loadSessionById(s)}
                   className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium truncate group flex items-center justify-between gap-1 transition ${
-                    s.id === sessionId ? 'bg-zinc-100/80 text-zinc-900 font-bold border border-zinc-200/50' : 'text-zinc-500 hover:bg-zinc-50'
+                    s.id === sessionId ? 'bg-[#EDE7DD] text-zinc-900 font-bold border border-[#E0D8CC]/50' : 'text-zinc-500 hover:bg-zinc-50'
                   }`}>
                   <span className="truncate">{s.title}</span>
                   <button onClick={(e) => deleteSessionById(s.id, e)}
@@ -485,10 +589,10 @@ export default function App() {
         </div>
 
         {/* User Profile */}
-        <div className="p-4 border-t border-zinc-200 bg-zinc-50">
+        <div className="p-4 border-t border-[#E8E0D4] bg-[#F5F0E8]">
           <button className="flex items-center justify-between w-full px-3 py-2 rounded-xl hover:bg-white border border-transparent hover:border-zinc-200 transition-all shadow-sm">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-black text-[#D4AF37] flex items-center justify-center text-xs font-bold shadow-inner">JS</div>
+              <div className="w-8 h-8 rounded-full bg-black text-[#DA7756] flex items-center justify-center text-xs font-bold shadow-inner">JS</div>
               <div className="flex flex-col text-left">
                 <span className="text-sm font-bold text-zinc-900">Jorge S.</span>
                 <span className="text-[10px] text-zinc-500 font-medium">Enterprise Plan</span>
@@ -503,13 +607,13 @@ export default function App() {
       </div>
 
       {/* ── Chat area ── */}
-      <div className="flex-1 flex flex-col relative min-w-[500px] bg-[#FDFDFD]">
+      <div className="flex-1 flex flex-col relative min-w-[500px] bg-[#F5F0E8]">
         {/* Header */}
-        <header className="h-16 flex items-center px-8 border-b border-zinc-100 bg-white/50 backdrop-blur-sm sticky top-0 z-10">
+        <header className="h-16 flex items-center px-8 border-b border-zinc-100 bg-[#FAF6F0]/80 backdrop-blur-sm sticky top-0 z-10">
           <div className="flex items-center gap-2 text-sm font-bold text-zinc-800">
             <span className="text-zinc-400">Sesiones</span>
             <ChevronRight className="w-4 h-4 text-zinc-300" />
-            <span className="truncate max-w-[300px]">{sessions.find(s => s.id === sessionId)?.title || 'Sesi\u00f3n actual'}</span>
+            <span className="truncate max-w-[300px]">{sessions.find(s => s.id === sessionId)?.title || 'Sesión actual'}</span>
           </div>
           {isStreaming && (
             <div className="ml-auto flex items-center gap-1.5">
@@ -518,6 +622,32 @@ export default function App() {
             </div>
           )}
         </header>
+
+        {/* Video contextual — compact bar above chat */}
+        {isVideoVisible && currentVideoUrl && (
+          <div className="relative w-full h-[80px] shrink-0 bg-black overflow-hidden">
+            <video
+              key={currentVideoUrl}
+              src={currentVideoUrl}
+              autoPlay
+              muted
+              loop
+              playsInline
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+            <div className="absolute bottom-3 left-4 flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-white/80 text-[11px] font-bold uppercase tracking-wider">Contexto Visual</span>
+            </div>
+            <button className="absolute top-2 right-2 px-2 py-1 rounded-md bg-black/40 text-white/60 hover:text-white text-[10px] font-bold backdrop-blur-sm" onClick={() => setIsVideoVisible(false)}>
+              Cerrar
+            </button>
+            <div className="absolute bottom-4 left-4 text-white/40 text-[10px] font-medium">
+              LTX-2.3 · Generando en bucle continuo
+            </div>
+          </div>
+        )}
 
         {/* Messages */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-8 scroll-smooth pb-40">
@@ -528,7 +658,7 @@ export default function App() {
                 <div key={msg.id} className={`flex gap-5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   {msg.role === 'assistant' && (
                     <div className="w-10 h-10 rounded-xl bg-black flex items-center justify-center shrink-0 mt-1 shadow-lg shadow-black/10 border border-zinc-800">
-                      <Sparkles className="w-5 h-5 text-[#D4AF37]" />
+                      <Sparkles className="w-5 h-5 text-[#DA7756]" />
                     </div>
                   )}
                   <div className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} max-w-[95%]`}>
@@ -545,9 +675,9 @@ export default function App() {
                         {/* Thinking */}
                         {(msg.thinking || isStreamingThis) && (
                           <div className="flex items-center gap-1.5 text-[10px] text-zinc-400 mb-1" style={{ display: msg.thinking || isStreamingThis ? '' : 'none' }}>
-                            <Brain className="w-3 h-3 text-[#D4AF37]" />
+                            <Brain className="w-3 h-3 text-[#DA7756]" />
                             <span id={`stream-thinking-${msg.id}`} className="font-medium italic truncate max-w-[400px]">
-                              {msg.thinking ? msg.thinking.slice(0, 100) + '\u2026' : ''}
+                              {msg.thinking ? msg.thinking.slice(0, 100) + '…' : ''}
                             </span>
                           </div>
                         )}
@@ -559,8 +689,8 @@ export default function App() {
                           <div className="prose-compact"><FullMarkdown content={msg.content} /></div>
                         ) : isStreaming ? (
                           <div className="flex items-center gap-3 text-zinc-500 font-medium text-sm animate-pulse bg-zinc-50 px-5 py-3.5 rounded-2xl border border-zinc-200/50">
-                            <Loader2 className="w-4 h-4 animate-spin text-[#D4AF37]" />
-                            ThotBrain est\u00e1 orquestando el enjambre de agentes...
+                            <Loader2 className="w-4 h-4 animate-spin text-[#DA7756]" />
+                            ThotBrain está orquestando el enjambre de agentes...
                           </div>
                         ) : null}
 
@@ -584,14 +714,14 @@ export default function App() {
         </div>
 
         {/* Input area */}
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-full max-w-4xl px-8">
-          <div className="bg-white rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.08)] border border-zinc-200 p-3 flex flex-col gap-3">
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 w-full max-w-3xl px-6">
+          <div className="bg-white rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.08)] border border-zinc-200 p-2 flex flex-col gap-1">
             {/* Status bar */}
             {isStreaming && (
               <div className="flex items-center justify-between px-2">
                 <div className="text-xs font-medium text-zinc-500 flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-[#D4AF37] animate-pulse" />
-                  El enjambre est\u00e1 procesando la tarea. Puedes a\u00f1adir instrucciones adicionales.
+                  <div className="w-2 h-2 rounded-full bg-[#DA7756] animate-pulse" />
+                  El enjambre está procesando la tarea. Puedes añadir instrucciones adicionales.
                 </div>
                 <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-100 text-zinc-600 text-[10px] font-bold uppercase tracking-wider border border-zinc-200">
                   <Cpu className="w-3 h-3" /> ThotBrain Core
@@ -612,13 +742,19 @@ export default function App() {
               </div>
             )}
 
-            <div className="flex items-end gap-2 bg-zinc-50 rounded-xl p-2 border border-zinc-200 focus-within:border-[#D4AF37] focus-within:ring-2 focus-within:ring-[#D4AF37]/20 transition-all shadow-inner">
+            <div className="flex items-end gap-2 bg-zinc-50 rounded-xl p-2 border border-zinc-200 focus-within:border-[#DA7756] focus-within:ring-2 focus-within:ring-[#DA7756]/20 transition-all shadow-inner">
               <button onClick={() => fileInputRef.current?.click()} className="w-10 h-10 rounded-lg flex items-center justify-center text-zinc-400 hover:text-black hover:bg-zinc-200 transition-colors shrink-0 mb-0.5">
                 <Plus className="w-5 h-5" />
               </button>
               <button onClick={toggleVoice}
                 className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors shrink-0 mb-0.5 ${isListening ? 'bg-red-100 text-red-500 hover:bg-red-200 animate-pulse' : 'text-zinc-400 hover:text-black hover:bg-zinc-200'}`}>
                 {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+              </button>
+              {/* TTS activates automatically with mic */}
+              <button onClick={() => { if (currentVideoUrl) setIsVideoVisible(p => !p); }}
+                title={currentVideoUrl ? "Ver vídeo contextual" : "Generando vídeo..."}
+                  className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors shrink-0 mb-0.5 ${isVideoVisible ? 'bg-[#DA7756]/10 text-[#DA7756]' : 'text-zinc-400 hover:text-black hover:bg-zinc-200'}`}>
+                <Video className="w-5 h-5" />
               </button>
 
               <input ref={fileInputRef} type="file" multiple className="hidden" accept="image/*,.pdf,.txt,.csv,.json,.md,.html,.xml,.doc,.docx"
@@ -627,8 +763,8 @@ export default function App() {
               <textarea ref={inputRef} value={input}
                 onChange={e => { setInput(e.target.value); e.target.style.height = 'auto'; e.target.style.height = `${Math.min(e.target.scrollHeight, 300)}px`; }}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                placeholder={isListening ? 'Escuchando\u2026' : 'Escribe o dicta tu mensaje aqu\u00ed (Shift + Enter para nueva l\u00ednea)...'}
-                className={`flex-1 bg-transparent border-none focus:ring-0 text-[15px] font-medium text-zinc-800 placeholder:text-zinc-400 px-2 py-2.5 outline-none resize-none min-h-[44px] max-h-[300px] overflow-y-auto leading-relaxed ${isListening ? 'placeholder:text-[#D4AF37] placeholder:animate-pulse' : ''}`}
+                placeholder={isListening ? 'Escuchando…' : 'Escribe o dicta tu mensaje aquí (Shift + Enter para nueva línea)...'}
+                className={`flex-1 bg-transparent border-none focus:ring-0 text-[15px] font-medium text-zinc-800 placeholder:text-zinc-400 px-2 py-2.5 outline-none resize-none min-h-[36px] max-h-[120px] overflow-y-auto leading-relaxed ${isListening ? 'placeholder:text-[#DA7756] placeholder:animate-pulse' : ''}`}
                 rows={1} />
 
               <div className="relative shrink-0 mb-0.5">
@@ -645,7 +781,7 @@ export default function App() {
                         <button key={m.id} onClick={() => { setSelectedModel(m.id); setShowModelMenu(false); }} disabled={!m.active}
                           className={`w-full text-left px-3 py-1.5 text-[11px] hover:bg-zinc-50 flex items-center justify-between ${!m.active ? 'opacity-40' : ''}`}>
                           <div><div className="font-semibold text-zinc-800">{m.name}</div><div className="text-[9px] text-zinc-400">{m.desc}</div></div>
-                          {selectedModel === m.id && <CheckCircle2 className="w-3 h-3 text-[#D4AF37]" />}
+                          {selectedModel === m.id && <CheckCircle2 className="w-3 h-3 text-[#DA7756]" />}
                         </button>
                       ))}
                     </div>
@@ -660,7 +796,7 @@ export default function App() {
                 </button>
               ) : (
                 <button onClick={handleSend} disabled={!input.trim() && attachedFiles.length === 0}
-                  className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 transition-all mb-0.5 ${input.trim() ? 'bg-black text-[#D4AF37] hover:bg-zinc-800 shadow-md' : 'bg-zinc-200 text-zinc-400 cursor-not-allowed'}`}>
+                  className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 transition-all mb-0.5 ${input.trim() ? 'bg-black text-[#DA7756] hover:bg-zinc-800 shadow-md' : 'bg-zinc-200 text-zinc-400 cursor-not-allowed'}`}>
                   <Send className="w-4 h-4" />
                 </button>
               )}
@@ -676,22 +812,28 @@ export default function App() {
           doneAgentNames={doneAgentNames}
           activities={activities}
           isProcessing={isStreaming}
+          agentReports={agentReports}
         />
       </div>
 
       {/* ── MCP Modal ── */}
       <MCPConnectorsModal isOpen={isMCPModalOpen} onClose={() => setIsMCPModalOpen(false)} />
 
+      {/* Hidden TTS audio */}
+      <audio ref={ttsAudioRef} className="hidden" />
+
       {/* ── Global styles ── */}
       <style>{`
-        .cursor-blink { display:inline-block;width:2px;height:14px;background:#D4AF37;margin-left:2px;vertical-align:text-bottom;animation:blink 1s step-end infinite; }
+        .cursor-blink { display:inline-block;width:2px;height:14px;background:#DA7756;margin-left:2px;vertical-align:text-bottom;animation:blink 1s step-end infinite; }
         @keyframes blink { 50% { opacity:0 } }
+        .prose-streaming,.prose-compact{padding:0 24px}
+        .research-img{width:48%;max-width:280px;height:180px;border-radius:10px;object-fit:cover;margin:4px;display:inline-block;vertical-align:top}
         .prose-streaming h1,.prose-compact h1{font-size:16px;font-weight:700;margin:12px 0 4px}
         .prose-streaming h2,.prose-compact h2{font-size:14px;font-weight:700;margin:10px 0 4px}
         .prose-streaming h3,.prose-compact h3{font-size:13px;font-weight:700;margin:8px 0 2px}
         .prose-streaming strong,.prose-compact strong{font-weight:600;color:#18181b}
         .prose-streaming em,.prose-compact em{font-style:italic}
-        .prose-streaming a{color:#D4AF37;text-decoration:none;border-bottom:1px solid rgba(212,175,55,0.3)}
+        .prose-streaming a{color:#DA7756;text-decoration:none;border-bottom:1px solid rgba(212,175,55,0.3)}
         .prose-streaming li{margin:2px 0}
         .prose-streaming hr{border-color:#e4e4e7;margin:8px 0}
         .inline-code{background:#f4f4f5;color:#3f3f46;padding:1px 5px;border-radius:4px;font-size:11px;font-family:'JetBrains Mono',monospace}

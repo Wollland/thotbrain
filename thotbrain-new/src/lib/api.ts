@@ -20,7 +20,7 @@ export interface StreamCallbacks {
   onDelta?: (text: string) => void;
   onActivity?: (activity: AgentActivity) => void;
   onAgentReport?: (report: AgentReport) => void;
-  onSwarmStart?: (count: number, agents: Array<{ name: string; task: string }>) => void;
+  onSwarmStart?: (count: number, agents: Array<{ name: string; task: string }>, videoPrompts?: string[]) => void;
   onSwarmComplete?: (count: number) => void;
   onCoverImage?: (imageBase64: string) => void;
   onSynthesisStart?: () => void;
@@ -235,7 +235,8 @@ export function streamChat(
               return;
             case 'swarm_start': {
               const agents = parsed.agents?.map((a: any) => ({ name: a.orchName || a.name, task: a.task })) || [];
-              callbacks.onSwarmStart?.(parsed.count || agents.length, agents);
+              const videoPrompts = parsed.video_prompts || [];
+              callbacks.onSwarmStart?.(parsed.count || agents.length, agents, videoPrompts);
               for (const a of agents) {
                 callbacks.onActivity?.({ agent: a.name, type: 'start', detail: a.task, timestamp: Date.now() });
               }
@@ -250,6 +251,9 @@ export function streamChat(
             case 'activity':
               if (parsed.orchName) parsed.agent = parsed.orchName;
               callbacks.onActivity?.(parsed as AgentActivity);
+              return;
+            case 'agent_report':
+              callbacks.onAgentReport?.({ agent: parsed.orchName || parsed.agent, content: parsed.text || '' });
               return;
           }
           // Unknown event type — fall through to normal processing
@@ -357,5 +361,120 @@ export async function generatePresentation(synthesis: string, query: string): Pr
     if (!res.ok) return null;
     const data = await res.json();
     return data.jsx || null;
+  } catch { return null; }
+}
+
+// ── ASR: Speech to Text ──
+export async function transcribeAudio(audioBlob: Blob): Promise<string | null> {
+  try {
+    const formData = new FormData();
+    // ASR endpoint expects field name 'file'
+    const ext = audioBlob.type.includes('webm') ? 'webm' : 'wav';
+    formData.append('file', audioBlob, `recording.${ext}`);
+    const res = await fetch(`${ORCHESTRATOR}/asr/transcribe`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!res.ok) {
+      console.error('[ASR] Error:', res.status, await res.text());
+      return null;
+    }
+    const data = await res.json();
+    console.log('[ASR] Transcribed:', data.text);
+    return data.text || null;
+  } catch (e) { console.error('[ASR] Failed:', e); return null; }
+}
+
+// ── TTS: Text to Speech ──
+export async function synthesizeSpeech(text: string, speaker: string = 'serena', language: string = 'spanish'): Promise<string | null> {
+  try {
+    console.log('[TTS] Synthesizing:', text.slice(0, 60));
+    const res = await fetch(`${ORCHESTRATOR}/tts/synthesize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, speaker, language }),
+    });
+    if (!res.ok) {
+      console.error('[TTS] Error:', res.status);
+      return null;
+    }
+    const data = await res.json();
+    console.log('[TTS] Got audio:', (data.audio || '').length, 'chars');
+    return data.audio || null;
+  } catch (e) { console.error('[TTS] Failed:', e); return null; }
+}
+
+// ── Video: Generate contextual clip ──
+export async function generateVideoClip(prompt: string): Promise<{ jobId: string } | null> {
+  try {
+    const res = await fetch(`${ORCHESTRATOR}/video/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, resolution: '1280x720', num_inference_steps: 8, video_length: 193 }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return { jobId: data.job_id };
+  } catch { return null; }
+}
+
+export async function checkVideoStatus(jobId: string): Promise<{ status: string; url?: string }> {
+  try {
+    const res = await fetch(`${ORCHESTRATOR}/video/status/${jobId}`);
+    const data = await res.json();
+    if (data.status === 'done' && data.files?.length > 0) {
+      const filename = data.files[0].split('/').pop();
+      return { status: 'done', url: `/video/videos/${encodeURIComponent(filename)}` };
+    }
+    return { status: data.status };
+  } catch { return { status: 'error' }; }
+}
+
+
+// ── Video Loop: continuous generation ──
+export async function startVideoBatch(prompts: string[]): Promise<boolean> {
+  try {
+    console.log('[Video] Starting batch with', prompts.length, 'prompts');
+    const res = await fetch(`${ORCHESTRATOR}/video/batch/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompts, resolution: '512x288', video_length: 49 }),
+    });
+    console.log('[Video] Batch start:', res.status);
+    return res.ok;
+  } catch (e) { console.error('[Video] Batch start failed:', e); return false; }
+}
+
+export async function stopVideoBatch(): Promise<void> {
+  try { await fetch(`${ORCHESTRATOR}/video/batch/stop`, { method: 'POST' }); } catch {}
+}
+
+export async function updateVideoPrompts(prompts: string[]): Promise<void> {
+  try {
+    await fetch(`${ORCHESTRATOR}/video/loop/update_prompts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompts }),
+    });
+  } catch {}
+}
+
+export async function getLatestClip(): Promise<{ url: string; prompt: string } | null> {
+  try {
+    // First check for final concatenated video
+    const finalRes = await fetch(`${ORCHESTRATOR}/video/batch/final`);
+    const finalData = await finalRes.json();
+    if (finalData.url) {
+      const fname = finalData.url.split('/').pop() || '';
+      return { url: `/video/videos/${encodeURIComponent(fname)}`, prompt: 'final' };
+    }
+    // Otherwise get latest individual clip
+    const res = await fetch(`${ORCHESTRATOR}/video/batch/latest`);
+    const data = await res.json();
+    if (data.url) {
+      const fname = data.url.split('/').pop() || '';
+      return { url: `/video/videos/${encodeURIComponent(fname)}`, prompt: data.prompt || '' };
+    }
+    return null;
   } catch { return null; }
 }

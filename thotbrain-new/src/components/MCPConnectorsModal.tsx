@@ -26,11 +26,11 @@ export const MCPConnectorsModal: React.FC<MCPConnectorsModalProps> = ({ isOpen, 
       setIsDiscoverLoading(true);
       const timer = setTimeout(() => {
         setDiscoverConnectors([
-          { id: 'jira', name: 'Jira Software', description: 'Gesti\u00f3n de proyectos y tickets \u00e1giles.', icon: Briefcase, type: 'official', downloads: '125k' },
-          { id: 'gdrive', name: 'Google Drive', description: 'Acceso a documentos, hojas de c\u00e1lculo y presentaciones.', icon: HardDrive, type: 'official', downloads: '340k' },
-          { id: 'zendesk', name: 'Zendesk Support', description: 'Atenci\u00f3n al cliente y resoluci\u00f3n de tickets.', icon: Headset, type: 'official', downloads: '85k' },
+          { id: 'jira', name: 'Jira Software', description: 'Gestión de proyectos y tickets ágiles.', icon: Briefcase, type: 'official', downloads: '125k' },
+          { id: 'gdrive', name: 'Google Drive', description: 'Acceso a documentos, hojas de cálculo y presentaciones.', icon: HardDrive, type: 'official', downloads: '340k' },
+          { id: 'zendesk', name: 'Zendesk Support', description: 'Atención al cliente y resolución de tickets.', icon: Headset, type: 'official', downloads: '85k' },
           { id: 'hubspot', name: 'HubSpot CRM', description: 'Inbound marketing, ventas y servicio al cliente.', icon: PieChart, type: 'community', downloads: '42k' },
-          { id: 'weather', name: 'Global Weather API', description: 'Datos meteorol\u00f3gicos en tiempo real para log\u00edstica.', icon: Globe, type: 'community', downloads: '12k' },
+          { id: 'weather', name: 'Global Weather API', description: 'Datos meteorológicos en tiempo real para logística.', icon: Globe, type: 'community', downloads: '12k' },
         ]);
         setIsDiscoverLoading(false);
       }, 800);
@@ -45,7 +45,7 @@ export const MCPConnectorsModal: React.FC<MCPConnectorsModalProps> = ({ isOpen, 
     { id: 'slack', name: 'Slack Integration', description: 'Notificaciones y comandos de chat bidireccionales.', icon: Slack, status: 'connected', type: 'official' },
     { id: 'notion', name: 'Notion Workspace', description: 'Lectura/escritura de base de conocimiento corporativa.', icon: FileText, status: 'disconnected', type: 'official' },
     { id: 'salesforce', name: 'Salesforce CRM', description: 'Datos de clientes y proyecciones para el Comercial.', icon: Database, status: 'error', type: 'official' },
-    { id: 'custom-erp', name: 'ERP Interno (Legacy)', description: 'Conector MCP personalizado v\u00eda API REST local.', icon: Plug, status: 'connected', type: 'custom' },
+    { id: 'custom-erp', name: 'ERP Interno (Legacy)', description: 'Conector MCP personalizado vía API REST local.', icon: Plug, status: 'connected', type: 'custom' },
   ];
 
   return (
@@ -77,7 +77,7 @@ export const MCPConnectorsModal: React.FC<MCPConnectorsModalProps> = ({ isOpen, 
           </div>
           <button className="flex items-center gap-2 bg-black text-white px-4 py-2 rounded-xl hover:bg-zinc-800 transition-all text-sm font-bold shadow-md shadow-black/10">
             <Plus className="w-4 h-4 text-[#D4AF37]" />
-            A\u00f1adir Custom MCP
+            Añadir Custom MCP
           </button>
         </div>
 
