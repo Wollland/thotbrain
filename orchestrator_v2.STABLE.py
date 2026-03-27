@@ -1410,8 +1410,16 @@ async def orchestrate_stream(
                 "POST",
                 f"{VLLM_BASE_URL}/v1/chat/completions",
                 json=synth_payload,
+                timeout=300.0,
             ) as resp:
+                _synth_hb = __import__("time").monotonic()
                 async for line in resp.aiter_lines():
+                    # Heartbeat every 8s to keep Cloudflare alive during synthesis
+                    _now_hb = __import__("time").monotonic()
+                    if _now_hb - _synth_hb > 8:
+                        yield ": heartbeat\n\n"
+
+                        _synth_hb = _now_hb
                     if not line.startswith("data: "):
                         continue
                     raw = line[6:]
@@ -1840,13 +1848,16 @@ async def tts_proxy(path: str, request: Request):
 
 @app.api_route("/video/{path:path}", methods=["GET", "POST", "HEAD"])
 async def video_proxy(path: str, request: Request):
-    url = f"{VIDEO_BASE}/{path}"
-    h = dict(request.headers); h.pop("host", None)
-    body = await request.body()
-    async with _httpx.AsyncClient(timeout=180.0) as c:
-        r = await c.request(request.method, url, headers=h, content=body)
-        rh = {k: r.headers[k] for k in ["content-type", "content-length", "accept-ranges"] if k in r.headers}
-        return Response(content=r.content, status_code=r.status_code, headers=rh)
+    try:
+        url = f"{VIDEO_BASE}/{path}"
+        h = dict(request.headers); h.pop("host", None)
+        body = await request.body()
+        async with _httpx.AsyncClient(timeout=30.0) as c:
+            r = await c.request(request.method, url, headers=h, content=body)
+            rh = {k: r.headers[k] for k in ["content-type", "content-length", "accept-ranges"] if k in r.headers}
+            return Response(content=r.content, status_code=r.status_code, headers=rh)
+    except Exception:
+        return JSONResponse({"error": "video service unavailable"}, status_code=503)
 
 @app.api_route("/coder/{path:path}", methods=["GET", "POST"])
 async def coder_proxy(path: str, request: Request):

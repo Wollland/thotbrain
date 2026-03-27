@@ -1410,8 +1410,16 @@ async def orchestrate_stream(
                 "POST",
                 f"{VLLM_BASE_URL}/v1/chat/completions",
                 json=synth_payload,
+                timeout=300.0,
             ) as resp:
+                _synth_hb = __import__("time").monotonic()
                 async for line in resp.aiter_lines():
+                    # Heartbeat every 8s to keep Cloudflare alive during synthesis
+                    _now_hb = __import__("time").monotonic()
+                    if _now_hb - _synth_hb > 8:
+                        yield ": heartbeat\n\n"
+
+                        _synth_hb = _now_hb
                     if not line.startswith("data: "):
                         continue
                     raw = line[6:]
