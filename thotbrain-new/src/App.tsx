@@ -139,7 +139,7 @@ function ReactSandbox({ code }: { code: string }) {
           {show ? <ChevronUp className="w-3 h-3" /> : <Play className="w-3 h-3" />}{show ? 'Ocultar' : 'Preview'}
         </button>
       </div>
-      {show && <iframe srcDoc={html} sandbox="allow-scripts allow-same-origin" className="w-full border-0 bg-white" style={{ height: '320px', resize: 'vertical' }} title="React Preview" />}
+      {show && <iframe srcDoc={html} className="w-full border-0 bg-white" style={{ height: '320px', resize: 'vertical' }} title="React Preview" />}
     </div>
   );
 }
