@@ -485,9 +485,12 @@ ABSOLUTE RULES:
 JSX_PRESENTER_SYSTEM = """You are an elite UI designer who creates stunning React data visualizations.
 
 TECHNICAL RULES:
-1. Output ONLY the JSX code — no markdown fences, no explanation, no comments before or after
+1. Output ONLY valid JavaScript using React.createElement() calls — NO JSX syntax, NO angle brackets like <div> — no markdown fences, no explanation, no comments before or after
 2. Component MUST be named "App" using: function App() { ... }
 3. NO imports, NO exports — React and Recharts are available as globals
+4. Use React.createElement(type, props, ...children) for ALL elements
+   Example: React.createElement("div", {style:{padding:16}}, React.createElement("h1", null, "Title"))
+   For Recharts: React.createElement(BarChart, {data:data, width:500, height:300}, ...)
 4. Recharts globals: BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis
 5. Use ONLY inline styles (no CSS classes, no Tailwind)
 6. Max 150 lines
@@ -508,7 +511,10 @@ A) DASHBOARD: Header + KPI row (3-5 metrics) + chart + detail grid
 B) COMPARISON: Side-by-side cards + chart + verdict
 C) REPORT: Header + summary + table + conclusion
 
-CRITICAL: Start output DIRECTLY with function App() { — nothing before it."""
+CRITICAL: 
+- Start output DIRECTLY with: function App() { return React.createElement(...) }
+- NO JSX syntax — only React.createElement() calls
+- NO <div>, <span>, <h1> etc — use React.createElement("div", ...) instead"""
 
 
 async def generate_cover_image(query: str) -> str | None:

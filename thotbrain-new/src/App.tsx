@@ -112,35 +112,25 @@ function ReactSandbox({ code }: { code: string }) {
     .replace(/\n/g, '\\n')
     .replace(/<\/script>/gi, '<\\/script>');
   // Build HTML exactly like the working sandbox.html demo
-  const SC = "</' + 'script>";
-  let h = '<!DOCTYPE html><html><head><meta charset="UTF-8">';
-  h += '<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#fff;color:#1a1a2e;padding:16px;min-height:100vh}</style>';
-  h += '</head><body>';
-  h += '<div id="root"><div style="color:#888;padding:40px;text-align:center">Cargando bibliotecas...</div></div>';
-  h += '<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"><' + '/script>';
-  h += '<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"><' + '/script>';
-  h += '<script src="https://cdnjs.cloudflare.com/ajax/libs/prop-types/15.8.1/prop-types.min.js"><' + '/script>';
-  h += '<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"><' + '/script>';
-  h += '<script>';
-  h += 'var s=document.createElement("script");';
-  h += 's.src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js";';
-  h += 's.onload=function(){';
-  h += '  if(window.Recharts){Object.keys(window.Recharts).forEach(function(k){window[k]=window.Recharts[k]})}';
-  h += '  try{';
-  h += '    var jsxCode="(function(){" + \'' + escaped + '\' + "\\nreturn typeof Presentation!==\\"undefined\\"?Presentation:typeof App!==\\"undefined\\"?App:typeof Dashboard!==\\"undefined\\"?Dashboard:typeof Component!==\\"undefined\\"?Component:typeof Chart!==\\"undefined\\"?Chart:null;})()";';
-  h += '    var transformed=Babel.transform(jsxCode,{presets:["react"]}).code;';
-  h += '    var Comp=eval(transformed);';
-  h += '    if(Comp){var root=ReactDOM.createRoot(document.getElementById("root"));root.render(React.createElement(Comp));}';
-  h += '    else{document.getElementById("root").innerHTML="<div style=\\"padding:20px;color:#666\\">No component found</div>";}';
-  h += '  }catch(e){';
-  h += '    document.getElementById("root").innerHTML="<div style=\\"color:#e74c3c;padding:20px\\"><h3>Render Error</h3><pre style=\\"white-space:pre-wrap\\">"+e.message+"\\n"+e.stack+"</pre></div>"';
-  h += '  }';
-  h += '};';
-  h += 's.onerror=function(){document.getElementById("root").innerHTML="<div style=\\"color:#e74c3c;padding:20px\\">Failed to load Recharts CDN</div>"};';
-  h += 'document.head.appendChild(s);';
-  h += '<' + '/script>';
-  h += '</body></html>';
-  const html = h;
+  // Build sandbox HTML — NO Babel needed, code uses React.createElement directly
+  const html = '<!DOCTYPE html><html><head><meta charset="UTF-8">'
+    + '<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#fafafa;color:#1a1a2e;padding:16px;min-height:100vh}</style>'
+    + '</head><body>'
+    + '<div id="root"><div style="color:#888;padding:40px;text-align:center">Cargando...</div></div>'
+    + '<script src="https://unpkg.com/react@18/umd/react.production.min.js"></' + 'script>'
+    + '<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></' + 'script>'
+    + '<script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></' + 'script>'
+    + '<script>'
+    + 'window.onload=function(){'
+    + 'if(window.Recharts){Object.keys(window.Recharts).forEach(function(k){window[k]=window.Recharts[k]})}'
+    + 'try{'
+    + 'var Comp=eval("(function(){"+' + "'" + escaped + "'" + '+"\nreturn typeof App!==\'undefined\'?App:typeof Presentation!==\'undefined\'?Presentation:typeof Dashboard!==\'undefined\'?Dashboard:null;})()");'
+    + 'if(Comp){ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(Comp))}'
+    + 'else{document.getElementById("root").innerHTML="<div style=\'padding:20px;color:#666\'>No component</div>"}'
+    + '}catch(e){document.getElementById("root").innerHTML="<div style=\'color:#e74c3c;padding:20px\'><b>Error:</b> "+e.message+"</div>"}'
+    + '};'
+    + '</' + 'script>'
+    + '</body></html>';
   return (
     <div className="my-3 border border-zinc-200 rounded-xl overflow-hidden shadow-sm">
       <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-50 border-b border-zinc-200">
