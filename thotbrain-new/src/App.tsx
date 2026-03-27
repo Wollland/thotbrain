@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
 import { streamChat, checkHealth, stripControlText, transcribeAudio, synthesizeSpeech, generateVideoClip, checkVideoStatus, startVideoBatch, stopVideoBatch, updateVideoPrompts, getLatestClip } from './lib/api';
 import type { ChatMsg, AgentActivity, AgentReport } from './lib/api';
 import { SwarmActivityPanel } from './components/SwarmActivityPanel';
@@ -173,7 +174,7 @@ const FullMarkdown = memo(function FullMarkdown({ content }: { content: string }
         part.type === 'sandbox' ? (
           <ReactSandbox key={i} code={part.content} />
         ) : (
-          <ReactMarkdown key={i} remarkPlugins={[remarkGfm]} components={{
+          <ReactMarkdown key={i} remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={{
             code({ className, children, ...props }) {
               const isBlock = className?.startsWith('language-');
               if (isBlock) return (<div className="my-2"><pre className="bg-zinc-900 text-zinc-100 rounded-lg p-3 overflow-x-auto text-[11px] font-mono leading-relaxed"><code className={className} {...props}>{children}</code></pre></div>);

@@ -30,6 +30,7 @@ import secrets
 import time
 import base64
 import uuid
+from datetime import datetime
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -1255,6 +1256,7 @@ async def orchestrate_stream(
             pending = set(futures)
             tool_results = []
             contextual_image_tasks = []  # Track contextual image generation
+            _collected_images = []  # Collect images for grid display
             contextual_images_launched = 0
 
             while pending:
@@ -1402,6 +1404,14 @@ async def orchestrate_stream(
         synth_content = False
         full_synthesis = []  # Collect full synthesis for JSX generation
 
+        # Emit collected images as 4-column grid
+        if _collected_images:
+            _grid_html = chr(10) + chr(10)
+            _grid_html += "<div style=\"display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:12px 0\">" + chr(10)
+            for _img in _collected_images:
+                _grid_html += "<img src=\"" + _img["url"] + "\" style=\"width:100%%;height:120px;object-fit:cover;border-radius:8px\" />" + chr(10)
+            _grid_html += "</div>" + chr(10) + chr(10)
+            yield _sse_chunk(_grid_html, model)
         yield _sse_event("synthesis_start", {"status": "generating"})
 
         await vllm_semaphore.acquire()
