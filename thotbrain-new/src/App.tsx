@@ -116,10 +116,10 @@ function ReactSandbox({ code }: { code: string }) {
   h += '<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#fff;color:#1a1a2e;padding:16px;min-height:100vh}</style>';
   h += '</head><body>';
   h += '<div id="root"><div style="color:#888;padding:40px;text-align:center">Cargando bibliotecas...</div></div>';
-  h += '<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"><' + '/script>';
-  h += '<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"><' + '/script>';
+  h += '<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"><' + '/script>';
+  h += '<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"><' + '/script>';
   h += '<script src="https://cdnjs.cloudflare.com/ajax/libs/prop-types/15.8.1/prop-types.min.js"><' + '/script>';
-  h += '<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"><' + '/script>';
+  h += '<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"><' + '/script>';
   h += '<script>';
   h += 'var s=document.createElement("script");';
   h += 's.src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js";';
@@ -148,7 +148,7 @@ function ReactSandbox({ code }: { code: string }) {
           {show ? <ChevronUp className="w-3 h-3" /> : <Play className="w-3 h-3" />}{show ? 'Ocultar' : 'Preview'}
         </button>
       </div>
-      {show && <iframe srcDoc={html} sandbox="allow-scripts allow-same-origin" className="w-full border-0 bg-white" style={{ height: '450px', resize: 'vertical' }} title="React Preview" />}
+      {show && <iframe srcDoc={html} sandbox="allow-scripts allow-same-origin" className="w-full border-0 bg-white" style={{ height: '320px', resize: 'vertical' }} title="React Preview" />}
     </div>
   );
 }
@@ -497,7 +497,7 @@ export default function App() {
               if (clip && clip.url !== lastClipUrlRef.current) {
                 lastClipUrlRef.current = clip.url;
                 setCurrentVideoUrl(clip.url);
-                // Video available but not auto-shown
+                setIsVideoVisible(true); // Auto-show when first clip arrives
               }
             }, 5000);
           } catch (e) { console.warn('Video loop failed:', e); }
@@ -718,7 +718,7 @@ export default function App() {
           <div className="bg-white rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.08)] border border-zinc-200 p-2 flex flex-col gap-1">
             {/* Status bar */}
             {isStreaming && (
-              <div className="flex items-center justify-between px-2">
+              <div className="flex items-center justify-between px-2 py-0.5">
                 <div className="text-xs font-medium text-zinc-500 flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-[#DA7756] animate-pulse" />
                   El enjambre está procesando la tarea. Puedes añadir instrucciones adicionales.
@@ -827,7 +827,7 @@ export default function App() {
         .cursor-blink { display:inline-block;width:2px;height:14px;background:#DA7756;margin-left:2px;vertical-align:text-bottom;animation:blink 1s step-end infinite; }
         @keyframes blink { 50% { opacity:0 } }
         .prose-streaming,.prose-compact{padding:0 24px}
-        .research-img{width:48%;max-width:280px;height:180px;border-radius:10px;object-fit:cover;margin:4px;display:inline-block;vertical-align:top}
+        .research-img{width:calc(50% - 10px) !important;height:160px !important;border-radius:10px;object-fit:cover;margin:4px !important;display:inline-block !important;vertical-align:top}
         .prose-streaming h1,.prose-compact h1{font-size:16px;font-weight:700;margin:12px 0 4px}
         .prose-streaming h2,.prose-compact h2{font-size:14px;font-weight:700;margin:10px 0 4px}
         .prose-streaming h3,.prose-compact h3{font-size:13px;font-weight:700;margin:8px 0 2px}
