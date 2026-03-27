@@ -319,7 +319,9 @@ ${ge}`}));P=_+de.join(""),M([])}const ae={id:au(),role:"user",content:P,timestam
         .cursor-blink { display:inline-block;width:2px;height:14px;background:#DA7756;margin-left:2px;vertical-align:text-bottom;animation:blink 1s step-end infinite; }
         @keyframes blink { 50% { opacity:0 } }
         .prose-streaming,.prose-compact{padding:0 24px}
-        .research-img{width:calc(50% - 10px) !important;height:160px !important;border-radius:10px;object-fit:cover;margin:4px !important;display:inline-block !important;vertical-align:top}
+        .research-img{width:160px !important;height:120px !important;border-radius:8px;object-fit:cover;margin:3px !important;float:left}
+        .prose-streaming p,.prose-compact p{overflow:hidden}
+        .prose-streaming .img-grid,.prose-compact .img-grid{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
         .prose-streaming h1,.prose-compact h1{font-size:16px;font-weight:700;margin:12px 0 4px}
         .prose-streaming h2,.prose-compact h2{font-size:14px;font-weight:700;margin:10px 0 4px}
         .prose-streaming h3,.prose-compact h3{font-size:13px;font-weight:700;margin:8px 0 2px}
